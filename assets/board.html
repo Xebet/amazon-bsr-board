@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Amazon Best Sellers · __TITLE__</title>
+<title>Amazon 榜单看板 · __TITLE__</title>
 <style>
   :root{
     --ink:#1f2937; --muted:#6b7280; --line:#dce1e8; --bg:#f7f8fa;
@@ -95,14 +95,24 @@ function renderTabs(){
 }
 
 /* ---- 渲染选中日期 ---- */
+const CUR_SYM = {USD:"$",GBP:"£",EUR:"€",JPY:"¥",CAD:"C$",AUD:"A$",INR:"₹",MXN:"MX$",
+                 BRL:"R$",SEK:"kr",PLN:"zł",SGD:"S$",AED:"AED "};
+const CUR = (DATA && DATA.currency) || "USD";
+const SYM = CUR_SYM[CUR] || "";
+const DEC = CUR === "JPY" ? 0 : 2;
+const RANK_LABEL = (DATA && DATA.rank_label) || "Best Sellers";
+const MARKET = (DATA && DATA.market) || "amazon.com";
+const MK_LABEL = (DATA && DATA.market_label) || "";
+const money = v => SYM + (v || 0).toFixed(DEC);
+
 function render(){
   const day = dates[active];
   if (!day){ $("grid").innerHTML = '<div class="empty">本月暂无数据</div>'; return; }
   const items = day.items.slice().sort((a,b)=>a.rank-b.rank);
 
-  $("h1").textContent = `Amazon Best Sellers · ${DATA.category} · Top ${items.length}`;
+  $("h1").textContent = `Amazon ${MK_LABEL} ${RANK_LABEL} · ${DATA.category} · Top ${items.length}`;
   $("meta").innerHTML =
-    `榜单日期 <b>${day.date}</b>（美西）｜数据源：amazon.com Best Sellers › ${DATA.category}`
+    `榜单日期 <b>${day.date}</b>${MARKET==="amazon.com"?"（美西）":""}｜数据源：${MARKET} ${RANK_LABEL} › ${DATA.category}`
     + `（node ${DATA.node}）｜抓取 ${day.crawled_at || "—"}`;
 
   const prices = items.map(x=>x.price_usd).filter(x=>x>0);
@@ -114,8 +124,8 @@ function render(){
   const topBrand = Object.entries(brandCnt).sort((a,b)=>b[1]-a[1])[0] || ["—",0];
 
   $("stats").innerHTML =
-    `均价 <b>$${avg.toFixed(2)}</b>　中位价 <b>$${med.toFixed(2)}</b>　价格带 `
-    + `<b>$${Math.min(...prices).toFixed(2)} – $${Math.max(...prices).toFixed(2)}</b>　`
+    `均价 <b>${money(avg)}</b>　中位价 <b>${money(med)}</b>　价格带 `
+    + `<b>${money(Math.min(...prices))} – ${money(Math.max(...prices))}</b>　`
     + `品牌数 <b>${Object.keys(brandCnt).length}</b>　头部品牌 <b>${topBrand[0]}</b>（${topBrand[1]} 席）`;
 
   // 颜色分布色条
@@ -141,9 +151,9 @@ function render(){
     return `<div class="card${x.rank<=3?" top3":""}">
       <div class="pic">${img}</div>
       <div class="row"><span class="rank">#${x.rank}</span>
-        <span class="price">$${(x.price_usd||0).toFixed(2)}</span></div>
+        <span class="price">${money(x.price_usd)}</span></div>
       <div class="brand" title="${(x.brand||"").replace(/"/g,"&quot;")}">${x.brand||"—"}</div>
-      <a class="asin" href="https://www.amazon.com/dp/${x.asin}" target="_blank" rel="noopener">${x.asin}</a>
+      <a class="asin" href="https://www.${MARKET}/dp/${x.asin}" target="_blank" rel="noopener">${x.asin}</a>
       <div class="meta color" style="margin-top:4px;font-size:11px"
            title="${x.color_src==='dp'?'商品页 Color 属性原文':'标题中的颜色表述'}">
         <span class="dot" style="background:${st[0]}"></span>${x.color_raw || "—"}</div>

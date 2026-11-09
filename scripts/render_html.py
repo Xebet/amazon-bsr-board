@@ -25,6 +25,21 @@ def _slug(name):
     return re.sub(r"[^A-Za-z0-9]+", "_", name).strip("_")
 
 
+RANK_LABELS = {"bestsellers": "Best Sellers", "new-releases": "New Releases",
+               "movers-and-shakers": "Movers & Shakers",
+               "most-wished-for": "Most Wished For"}
+BOARD_PREFIX = {"bestsellers": "board", "new-releases": "board_newreleases",
+                "movers-and-shakers": "board_movers",
+                "most-wished-for": "board_wished"}
+
+# 只看显示：站点 → 页面标题里用的地名缩写
+MARKET_LABELS = {"amazon.com": "US", "amazon.co.uk": "UK", "amazon.ca": "CA", "amazon.de": "DE",
+                 "amazon.fr": "FR", "amazon.it": "IT", "amazon.es": "ES", "amazon.nl": "NL",
+                 "amazon.se": "SE", "amazon.pl": "PL", "amazon.co.jp": "JP", "amazon.com.au": "AU",
+                 "amazon.in": "IN", "amazon.com.mx": "MX", "amazon.com.br": "BR",
+                 "amazon.sg": "SG", "amazon.ae": "AE"}
+
+
 def _data_url(path):
     if not (path and os.path.exists(path)):
         return ""
@@ -77,7 +92,8 @@ def collect(workdir, month, upto=None):
 
 
 def render(workdir, month=None, date=None, name="Hair Replacement Wigs",
-           node="702381011", embed=False, out_path=None):
+           node="702381011", embed=False, out_path=None,
+           market="amazon.com", currency="USD", rank_type="bestsellers"):
     workdir = os.path.abspath(workdir)
     month = month or (date or "")[:7]
     if not re.fullmatch(r"\d{4}-\d\d", month or ""):
@@ -90,6 +106,11 @@ def render(workdir, month=None, date=None, name="Hair Replacement Wigs",
         "category": name,
         "node": node,
         "month": month,
+        "market": market,
+        "market_label": MARKET_LABELS.get(market, ""),
+        "currency": currency,
+        "rank_type": rank_type,
+        "rank_label": RANK_LABELS.get(rank_type, "Best Sellers"),
         "dates": [{"date": d, "crawled_at": c or "—",
                    "items": [_prep_item(it, embed) for it in items]}
                   for d, c, items in days],
@@ -100,7 +121,8 @@ def render(workdir, month=None, date=None, name="Hair Replacement Wigs",
 
     out_dir = os.path.join(workdir, "output")
     os.makedirs(out_dir, exist_ok=True)
-    out = out_path or os.path.join(out_dir, f"board_{_slug(name)}_{month}.html")
+    out = out_path or os.path.join(
+        out_dir, f"{BOARD_PREFIX.get(rank_type, 'board')}_{_slug(name)}_{month}.html")
     with open(out, "w", encoding="utf-8") as f:
         f.write(html)
     size_mb = os.path.getsize(out) / 1024 / 1024
@@ -128,10 +150,16 @@ def main():
                     help="工程根目录（含 data/ 与 output/），默认：项目内=项目根，技能内=当前目录")
     ap.add_argument("--name", default="Hair Replacement Wigs")
     ap.add_argument("--node", default="702381011")
+    ap.add_argument("--market", default="amazon.com", help="站点域名，决定 ASIN 链接指向哪个站点")
+    ap.add_argument("--currency", default="USD", help="币种代码，仅用于标注")
+    ap.add_argument("--rank-type", default="bestsellers",
+                    choices=list(RANK_LABELS),
+                    help="榜单类型（与出表时的 --rank-type 保持一致）")
     ap.add_argument("--embed", action="store_true", help="图片转 base64 内嵌（可离线，文件更大）")
     args = ap.parse_args()
     render(args.workdir or _default_workdir(), month=args.month, date=args.date,
-           name=args.name, node=args.node, embed=args.embed)
+           name=args.name, node=args.node, embed=args.embed, market=args.market,
+           currency=args.currency, rank_type=args.rank_type)
 
 
 if __name__ == "__main__":

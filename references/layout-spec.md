@@ -6,16 +6,20 @@
 
 | 参数 | 默认值 | 说明 |
 |---|---|---|
-| 站点 | `amazon.com`（美国站） | 其他站点改域名 + 站点币种 |
-| 类目节点 | `702381011` | Beauty › Hair Extensions, Wigs & Accessories › **Hair Replacement Wigs** |
-| 类目名 | `Hair Replacement Wigs` | 用于标题与文件名 |
-| 抓取深度 | Top 100 | 榜单 1-100 名 |
-| 货币 | USD | 必须，否则会抓到人民币预算价 |
+| 站点 `--market` | `amazon.com`（美国站） | 17 个站点已收录（.co.uk/.de/.co.jp/…），币种与语言随之切换；**节点 ID 按站点各自一套**，不能拿美国站的节点去查其他站点 |
+| 类目节点 `--node` | `702381011` | Beauty › Hair Extensions, Wigs & Accessories › **Hair Replacement Wigs** |
+| 类目名 `--name` | `Hair Replacement Wigs` | 用于标题与文件名 |
+| 榜单类型 `--rank-type` | `bestsellers` | `bestsellers` 畅销榜 / `new-releases` 新品榜 / `movers-and-shakers` 飙升榜 / `most-wished-for` 心愿单榜（同一套卡片版式，仅 URL 与文案不同） |
+| 卡片字段 `--fields` | `image,rank,price,brand,color,asin` | 逗号分隔，可只留 `image,rank,price`；减字段即减行，卡片整体收紧；色条随 `color` 一起出现/消失 |
+| 抓取深度 `--want` | 100 | 榜单 1–N 名 |
+| 货币 `--currency` | 按站点推断 | 不设会按站点默认币种（甚至人民币预算价）返回 |
 | 表名 | `YYYY-MM-DD` | 一个日期一张表 |
 | 产出粒度 | 一个月一个文件 | 文件名带 `YYYY-MM`，内含当月每日一张表，日期升序 |
 | HTML 看板 | 同月同文件 | `board_<slug>_<YYYY-MM>.html`，顶部日期切换，默认最新一天 |
 
-**类目节点怎么找**：`https://www.amazon.com/gp/bestsellers/beauty/` → 逐层点进目标类目，浏览器地址栏 `zgbs/beauty/<节点ID>` 里的数字就是节点 ID。
+文件名前缀随榜单类型变：畅销榜 `Amazon_BestSellers_<slug>_<YYYY-MM>.xlsx`（历史文件与定时任务沿用此名），新品榜 `Amazon_NewReleases_…`，飙升榜 `Amazon_MoversShakers_…`，心愿单榜 `Amazon_MostWishedFor_…`，避免同类目不同榜单互相覆盖。
+
+**类目节点怎么找**：`https://www.amazon.com/gp/bestsellers/beauty/` → 逐层点进目标类目，浏览器地址栏 `zgbs/beauty/<节点ID>` 里的数字就是节点 ID。URL 里的顶层类目段（`beauty`）只用于拼链接，Amazon 按 node 路由，配错也会跳对，所以换类目只需换 `--node`。
 
 ## 2. 数据字段（每个商品 8 个）
 
@@ -40,7 +44,11 @@
 - 每张卡占 **2 列**，卡片之间空 **1 列**做留白 → 一行占用列宽 = 10×3-1 = 29 列
 - 单列宽 `11.2` 字符（本机默认字体下 = **90px**），留白列宽 `1.5`
 - A 列宽 `1.4` 作左边距，卡片从 **B 列**开始
-- 卡片区从**第 6 行**开始；每张卡纵向占 5 行 + 1 行间隔（行高：112 / 21 / 21 / 17 / 18 / 12 pt）
+- 卡片区从**第 6 行**开始；每张卡纵向占 5 行 + 1 行间隔（行高：112 / 21 / 21 / 动态 / 18 / 12 pt）
+
+> 以上是**默认字段**（image,rank,price,brand,color,asin）的版式。用 `--fields` 减字段时：被减掉的字段整行取消，
+> 卡片段高 = 内容行数 + 1 行间隔；没有 `color` 就没有顶部色条，卡片区上移到第 5 行，冻结行同步变为第 5 行。
+> 只剩 `rank` 或只剩 `price` 时，该内容占满整行（合并 2 列）。
 
 **卡片内部（自上而下）**
 
@@ -50,7 +58,7 @@
 | 2 左 | `#排名` | Arial 12 加粗，前 3 名 `#C2410C`，其余 `#6B7280`，居中 |
 | 2 右 | `$价格` | Arial 10.5 加粗，格式 `"$"#,##0.00`，居中，**不要设缩进**（否则列宽不足显示 `####`） |
 | 3 | 品牌 | 微软雅黑 10 加粗，合并 2 列，居中 |
-| 4 | **颜色（原文）** | 色点 `● `（Arial 9，颜色=色系色）+ 原文（雅黑 8.8，`#6B7280`），合并 2 列，居中，行高 17pt |
+| 4 | **颜色（原文）** | 色点 `● `（Arial 9，颜色=色系色）+ 原文（雅黑 8.8，`#6B7280`），合并 2 列，居中，行高按原文显示宽度动态撑开（`min(4, ceil(宽度/24))` 行 × 13pt + 4，且同一行 10 张卡取最大值） |
 | 5 | ASIN | Arial 9，蓝色 `#0563C1` + 下划线，**超链接到 `https://www.amazon.com/dp/<ASIN>`**，合并 2 列，居中 |
 
 - 卡片边框：细线 `#DCE1E8`，白底
@@ -61,7 +69,7 @@
 
 | 行 | 内容 |
 |---|---|
-| 1 | 标题：`Amazon US Best Sellers · <类目名> · Top 100`（雅黑 16 加粗） |
+| 1 | 标题：`Amazon <站点> <榜单名> · <类目名> · Top N`（雅黑 16 加粗；美国站畅销榜 = `Amazon US Best Sellers · … · Top 100`） |
 | 2 | 榜单日期（美西）｜数据源：类目路径 + node ID｜抓取时间（北京时间/美西双标） |
 | 3 | 均价 ｜ 中位价 ｜ 价格带 ｜ 品牌数 ｜ 头部品牌（含席位数） |
 | 4 | **色系分布色条**：一个色系一格，格子底色=该色系，文案 `色系 数量 · 占比%`，按数量降序（标签写「色系分布」，因为卡片显示的是原文） |
@@ -107,6 +115,7 @@ Silver+Leopard+Black (Pack of 3)    200%Density 13x4 Lace Front Wig
 - v1（≤2026-11-06）用 `len(v) > 24` 触发短语提取，把 `Ash Rooted platinum blonde` 截成 `Platinum Blonde`，还抹掉了 `Brown Mix Blonde Highlights` 的挑染信号
 - v2（2026-11-09 下午）取消截断，但仍逐词改大小写，与原文每天仍有 19~21 条不一致
 - v3（当前）完全无损
+- v3.1（v1.3.0，2026-11-09 晚）修掉**残余的源端截断**：`_clean_color` 末尾还有 `v[:40]`，提取阶段就把 40 字符以上的原文切了，后续再无损也救不回来。实测 `B0HDNSRX2H` 被切成 `Honey Blonde Highlight｜Side Part｜7x5 Lac`（40 字符），真值是 `Honey Blonde Highlight｜Side Part｜7x5 Lace ｜Drawstring`（53 字符）。正则的 `{1,60}` 也一并放到 `{1,200}`。**校验办法**：跑完查 `select max(length(color_dp))`，看有没有恰好 40 的整数截断值。
 
 ## 5. 价格口径与兜底
 

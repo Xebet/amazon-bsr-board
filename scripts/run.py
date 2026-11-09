@@ -31,26 +31,78 @@ import sys
 import tempfile
 import time
 
-__version__ = "1.2.2"      # 与 SKILL.md 的 version 字段保持一致，由 tools/sync_skill.py 统一维护
+__version__ = "1.3.0"      # 与 SKILL.md 的 version 字段保持一致，由 tools/sync_skill.py 统一维护
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
-COOKIE = "i18n-prefs=USD; lc-main=en_US"     # 必须：否则价格是人民币
+
+# ---------------------------------------------------------------- 站点与榜单类型
+# 这个工具不绑定某一个类目：站点 / 类目节点 / 榜单类型 / 卡片字段 / 名次数量 全部由参数决定。
+# 首次为假发类目搭建是为了验证版式，换类目只需换 --node --name（见 SKILL.md「换类目」）。
+RANK_TYPES = {
+    # 参数值:（URL 路径段, 英文名, 中文名）
+    "bestsellers":        ("bestsellers",        "Best Sellers",     "畅销榜"),
+    "new-releases":       ("new-releases",       "New Releases",     "新品榜"),
+    "movers-and-shakers": ("movers-and-shakers", "Movers & Shakers", "飙升榜"),
+    "most-wished-for":    ("most-wished-for",    "Most Wished For",  "心愿单榜"),
+}
+
+MARKETS = {
+    # 站点:（显示名, 币种, 语言, 默认收货 ZIP）
+    "amazon.com":    ("US", "USD", "en-US", "10001"),
+    "amazon.co.uk":  ("UK", "GBP", "en-GB", "SW1A 1AA"),
+    "amazon.ca":     ("CA", "CAD", "en-CA", "M5V 3L9"),
+    "amazon.de":     ("DE", "EUR", "de-DE", "10115"),
+    "amazon.fr":     ("FR", "EUR", "fr-FR", "75001"),
+    "amazon.it":     ("IT", "EUR", "it-IT", "20121"),
+    "amazon.es":     ("ES", "EUR", "es-ES", "28001"),
+    "amazon.nl":     ("NL", "EUR", "nl-NL", "1011"),
+    "amazon.se":     ("SE", "SEK", "sv-SE", "111 20"),
+    "amazon.pl":     ("PL", "PLN", "pl-PL", "00-001"),
+    "amazon.co.jp":  ("JP", "JPY", "ja-JP", "100-0001"),
+    "amazon.com.au": ("AU", "AUD", "en-AU", "2000"),
+    "amazon.in":     ("IN", "INR", "en-IN", "110001"),
+    "amazon.com.mx": ("MX", "MXN", "es-MX", "01000"),
+    "amazon.com.br": ("BR", "BRL", "pt-BR", "01000-000"),
+    "amazon.sg":     ("SG", "SGD", "en-SG", "018956"),
+    "amazon.ae":     ("AE", "AED", "en-AE", "00000"),
+}
+CUR_SYMBOL = {"USD": "$", "GBP": "£", "EUR": "€", "JPY": "¥", "CAD": "C$", "AUD": "A$",
+              "INR": "₹", "MXN": "MX$", "BRL": "R$", "SEK": "kr", "PLN": "zł",
+              "SGD": "S$", "AED": "AED "}
+CUR_DEC = {"JPY": 0}                       # 无小数位的币种
+
+# 卡片字段：列表顺序即显示顺序；rank 与 price 同排（左/右），其余各占一行
+FIELDS = ("image", "rank", "price", "brand", "color", "asin")
+FIELD_CN = {"image": "商品图", "rank": "排名", "price": "价格",
+            "brand": "品牌", "color": "颜色", "asin": "ASIN"}
+
+CFG = {"market": "amazon.com", "currency": "USD", "rank_type": "bestsellers",
+       "fields": list(FIELDS), "slug": "beauty"}      # 由 main() 按参数覆盖
+
+
+def _cur():
+    return CFG["currency"]
+
+
+def _cookie():
+    """币种 cookie：不设就会按站点默认币种（甚至人民币预算价）返回"""
+    return f"i18n-prefs={_cur()}; lc-main=en_US"
 
 # ---------------------------------------------------------------- 美国收货地址
 # 不设美国地址时，Amazon 会对一部分商品显示「cannot be shipped to your selected
 # delivery location」并隐藏价格（实测 100 条里有 30~37 条无价，且偏向高价品）。
 # 做法：建一次带美国 ZIP 的会话，落盘为 storage_state，后续所有浏览器上下文与
 # curl 复用同一会话。会话失效时（TTL 到期）自动重建。
-US_ZIP = os.environ.get("AMZ_US_ZIP", "10001")
+US_ZIP = os.environ.get("AMZ_US_ZIP") or os.environ.get("AMZ_ZIP")   # 兼容旧变量名
 _LOCATION_TTL = 6 * 3600
 _PROJ = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 _PRIMED = [False]
 
-ADDR_JS = r"""async (zip) => {
+ADDR_JS = r"""async ([zip, market]) => {
   const body = new URLSearchParams({locationType:'LOCATION_INPUT', zipCode:zip,
     storeContext:'generic', deviceType:'web', pageType:'Gateway', actionSource:'glow'});
-  const r = await fetch('https://www.amazon.com/gp/delivery/ajax/address-change.html',
+  const r = await fetch(`https://www.${market}/gp/delivery/ajax/address-change.html`,
     {method:'POST', credentials:'include',
      headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8',
               'X-Requested-With':'XMLHttpRequest'},
@@ -94,14 +146,15 @@ def _write_cookie_jar(state):
 
 
 async def prime_us_session(market="amazon.com", zip_code=None, force=False):
-    """建立「美国收货地址」会话并落盘；失败则静默降级为默认地址（价格可能有缺失）"""
+    """建立「目标站点 + 当地收货地址」的会话并落盘；失败则静默降级为默认地址（价格可能有缺失）"""
     if _PRIMED[0]:
         return _state_path() if os.path.exists(_state_path()) else None
-    zip_code = zip_code or US_ZIP
+    zip_code = zip_code or US_ZIP or MARKETS.get(market, ("", "", "", ""))[3]
+    _locale = MARKETS.get(market, ("", "", "en-US", ""))[2]
     p = _state_path()
     if not force and os.path.exists(p) and time.time() - os.path.getmtime(p) < _LOCATION_TTL:
         _PRIMED[0] = True
-        log(f"  复用已有美国收货地址会话（ZIP {zip_code}）")
+        log(f"  复用已有收货地址会话（{market} / ZIP {zip_code}）")
         return p
 
     from playwright.async_api import async_playwright
@@ -113,16 +166,16 @@ async def prime_us_session(market="amazon.com", zip_code=None, force=False):
                                               args=["--disable-blink-features=AutomationControlled"])
             except Exception:
                 br = await pw.chromium.launch(headless=True)
-            ctx = await br.new_context(locale="en-US", user_agent=UA,
+            ctx = await br.new_context(locale=_locale, user_agent=UA,
                                        viewport={"width": 1400, "height": 1000})
             await ctx.add_cookies([
-                {"name": "i18n-prefs", "value": "USD", "domain": "." + market, "path": "/"},
+                {"name": "i18n-prefs", "value": _cur(), "domain": "." + market, "path": "/"},
                 {"name": "lc-main", "value": "en_US", "domain": "." + market, "path": "/"},
             ])
             page = await ctx.new_page()
             await page.goto(f"https://www.{market}/", wait_until="domcontentloaded", timeout=60000)
             await page.wait_for_timeout(1200)
-            r = await page.evaluate(ADDR_JS, zip_code)
+            r = await page.evaluate(ADDR_JS, [zip_code, market])
             ok = '"isAddressUpdated":1' in (r.get("text") or "")
             loc = ""
             if ok:
@@ -133,11 +186,13 @@ async def prime_us_session(market="amazon.com", zip_code=None, force=False):
             state = await ctx.storage_state()
             await br.close()
     except Exception as e:
-        log(f"  ! 设置美国收货地址失败，按默认地址继续（价格可能有缺失）：{e}")
+        log(f"  ! 设置当地收货地址失败，按默认地址继续（价格可能有缺失）：{e}")
         return None
 
-    if not ok or zip_code not in (loc or ""):
-        log(f"  ! 美国收货地址未生效（当前 {loc or '未知'}），价格可能仍有缺失")
+    # 回读位置：美国站要求 ZIP 原样出现；其他站点城市名可能替代 ZIP，只要求拿到位置行
+    _loc_ok = bool(loc) and (market != "amazon.com" or zip_code in loc)
+    if not ok or not _loc_ok:
+        log(f"  ! 收货地址未生效（当前 {loc or '未知'}），价格可能仍有缺失")
         if os.path.exists(p):
             os.remove(p)                      # 别让坏会话被后续复用
         if os.path.exists(_jar_path()):
@@ -147,14 +202,14 @@ async def prime_us_session(market="amazon.com", zip_code=None, force=False):
     os.makedirs(os.path.dirname(p), exist_ok=True)
     json.dump(state, open(p, "w", encoding="utf-8"), ensure_ascii=False)
     _write_cookie_jar(state)
-    log(f"  美国收货地址就绪：{loc}（会话已缓存，6 小时内复用）")
+    log(f"  收货地址就绪：{loc}（{market}，会话已缓存，6 小时内复用）")
     return p
 
 # ---------------------------------------------------------------- 版式常量
 # 改动这些值 = 改版式；已按 Excel 真实列宽(90px/列)校准过图片居中
 LAYOUT = dict(
     per_row=10,          # 每行卡片数
-    rows_per_band=6,     # 每张卡片占 5 行 + 1 行间隔
+    rows_per_band=6,     # 已废弃：卡片行数现由 --fields 决定（保留键以兼容旧配置）
     col_w=11.2,          # 单列宽（字符）→ 实测算 90px
     gut_w=1.5,           # 卡片之间留白列宽
     start_col=2,         # B 列起排
@@ -231,13 +286,18 @@ async def _scrape_grid(node_id, market="amazon.com", want=100):
             browser = await p.chromium.launch(channel="msedge", **kwargs)
         except Exception:
             browser = await p.chromium.launch(**kwargs)      # 没装 Edge 就用自带 chromium
-        ctx = await browser.new_context(locale="en-US", viewport={"width": 1500, "height": 1100},
+        ctx = await browser.new_context(locale=MARKETS.get(market, ("", "", "en-US", ""))[2],
+                                        viewport={"width": 1500, "height": 1100},
                                         user_agent=UA, **_state_kw())
-        await ctx.add_cookies([{"name": "i18n-prefs", "value": "USD",
+        await ctx.add_cookies([{"name": "i18n-prefs", "value": _cur(),
                                 "domain": "." + market, "path": "/"}])
         page = await ctx.new_page()
+        rank_path = RANK_TYPES[CFG["rank_type"]][0]
+        slug = CFG.get("slug") or "beauty"
         for pg in (1, 2):
-            url = f"https://www.{market}/gp/bestsellers/beauty/{node_id}/?pg={pg}"
+            # 路径里的顶层类目段（beauty）只用于拼 URL：实测 Amazon 按 node 路由，
+            # 拿 beauty 的段配 electronics 的 node 仍会跳到正确类目，故 --slug 一般不用改
+            url = f"https://www.{market}/gp/{rank_path}/{slug}/{node_id}/?pg={pg}"
             await page.goto(url, wait_until="domcontentloaded", timeout=60000)
             await page.wait_for_timeout(2200)                 # 等首屏渲染完
             # 榜单每页只直出 30 条，其余靠滚动触发 AJAX 补齐，必须连续多轮无增长才算到底
@@ -291,17 +351,19 @@ def _curl(url, out):
     jar = _jar_path()
     subprocess.run(["curl", "-s", "--compressed", "-m", "20", "-A", UA,
                     "-H", "Accept-Language: en-US,en;q=0.9",
-                    "-b", jar if os.path.exists(jar) else COOKIE,
+                    "-b", jar if os.path.exists(jar) else _cookie(),
                     "-o", out, url], check=False)
     return os.path.exists(out) and os.path.getsize(out) > 50000
 
 
 def _clean_color(v):
-    """规范化商品页取到的颜色原文：去标签、去 'Color:' 前缀、压缩空白"""
+    """源提取时的初步清洗：去标签、去 'Color:' 前缀、压缩空白。
+    这里**不做长度截断**——颜色原文按「逐字照抄」口径必须完整保留
+    （v1.2.x 此处的 v[:40] 曾把 40 字符的颜色值截断，属已修 bug）。"""
     v = html.unescape(re.sub(r"<[^>]+>", " ", v or ""))
     v = re.sub(r"\s+", " ", v).strip()
     v = re.sub(r"^(?:Color|Colour)\s*[:：]\s*", "", v, flags=re.I)
-    return v[:40]
+    return v
 
 
 def parse_color_html(h):
@@ -310,11 +372,11 @@ def parse_color_html(h):
     if not h:
         return ""
     pats = [
-        r'id="variation_color_name"[\s\S]{0,900}?class="selection"[^>]*>\s*([^<]{1,60}?)\s*<',
-        r'id="variation_color_name"[\s\S]{0,900}?<span[^>]*>\s*([^<]{1,60}?)\s*</span>',
-        r'>\s*Color\s*<[\s\S]{0,300}?<span[^>]*>\s*([^<]{1,60}?)\s*<',
-        r'prodDetAttrValue"[^>]*>\s*([^<]{1,60}?)\s*<',
-        r'Color\s*[:：]\s*</span>[\s\S]{0,160}?<span[^>]*>\s*([^<]{1,60}?)\s*<',
+        r'id="variation_color_name"[\s\S]{0,900}?class="selection"[^>]*>\s*([^<]{1,200}?)\s*<',
+        r'id="variation_color_name"[\s\S]{0,900}?<span[^>]*>\s*([^<]{1,200}?)\s*</span>',
+        r'>\s*Color\s*<[\s\S]{0,300}?<span[^>]*>\s*([^<]{1,200}?)\s*<',
+        r'prodDetAttrValue"[^>]*>\s*([^<]{1,200}?)\s*<',
+        r'Color\s*[:：]\s*</span>[\s\S]{0,160}?<span[^>]*>\s*([^<]{1,200}?)\s*<',
     ]
     for pat in pats:
         m = re.search(pat, h, re.S)
@@ -729,8 +791,32 @@ def _thumb(path, cache_dir, box=200):
         return None, 0, 0
 
 
+def _row_plan():
+    """卡片内各行的构成（由 CFG["fields"] 决定），返回 [(key, 行高pt 或 None=按内容动态)]"""
+    f = CFG["fields"]
+    plan = []
+    if "image" in f:
+        plan.append(("image", LAYOUT["img_row_h"]))
+    if "rank" in f or "price" in f:
+        plan.append(("head", 21))       # 排名（左）与价格（右）同排
+    if "brand" in f:
+        plan.append(("brand", 21))
+    if "color" in f:
+        plan.append(("color", None))    # 行高按原文显示宽度动态撑开
+    if "asin" in f:
+        plan.append(("asin", 18))
+    return plan
+
+
+def _money(v):
+    """按当前站点币种格式化（日元等无小数位币种自动去小数位）"""
+    sym, dec = CUR_SYMBOL.get(_cur(), ""), CUR_DEC.get(_cur(), 2)
+    return f"{sym}{v:,.{dec}f}"
+
+
 def _fill_sheet(ws, items, date_s, name, node_id, crawled_at, thumb_dir):
-    """把一天的数据画成一张卡片看板工作表（调用方负责建表与保存）"""
+    """把一天的数据画成一张卡片看板工作表（调用方负责建表与保存）
+    版式随 CFG["fields"] 增减：字段少了就少一行、卡片整体收紧，不留空行。"""
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
     from openpyxl.drawing.image import Image as XLImage
@@ -740,6 +826,17 @@ def _fill_sheet(ws, items, date_s, name, node_id, crawled_at, thumb_dir):
     from openpyxl.worksheet.properties import PageSetupProperties
 
     L = LAYOUT
+    fields = CFG["fields"]
+    market = CFG["market"]
+    rank_en = RANK_TYPES[CFG["rank_type"]][1]
+    mk_label = MARKETS.get(market, ("US",))[0]
+    plan = _row_plan()
+    off = {k: i for i, (k, _) in enumerate(plan)}
+    band_h = len(plan) + 1                     # 卡片内容行 + 1 行间隔
+    has_bar = "color" in fields                # 顶部色系色条依赖颜色字段
+    has_rank, has_price = "rank" in fields, "price" in fields
+    has_brand = "brand" in fields
+
     items = sorted(items, key=lambda x: x["rank"])
     prices = [float(x["price_usd"]) for x in items if x.get("price_usd")]
     if not prices:
@@ -750,13 +847,13 @@ def _fill_sheet(ws, items, date_s, name, node_id, crawled_at, thumb_dir):
     sp = sorted(prices)
     med = sp[len(sp) // 2] if len(sp) % 2 else (sp[len(sp) // 2 - 1] + sp[len(sp) // 2]) / 2
     brands = collections.Counter(x["brand"] for x in items if x.get("brand"))
-    top_brand = brands.most_common(1)[0]
+    top_brand = brands.most_common(1)[0] if brands else ("", 0)
 
     ws.sheet_properties.tabColor = "FF9900"
     ws.sheet_view.showGridLines = False
 
     start_col, card_cols, step = L["start_col"], L["card_cols"], L["card_step"]
-    per_row, per_band = L["per_row"], L["rows_per_band"]
+    per_row = L["per_row"]
     last_col = start_col + (per_row - 1) * step + card_cols - 1
     card_px = _col_px(L["col_w"], L["mdw"]) * card_cols
 
@@ -771,133 +868,154 @@ def _fill_sheet(ws, items, date_s, name, node_id, crawled_at, thumb_dir):
     thin = Side(style="thin", color=LINE)
     box = Border(left=thin, right=thin, top=thin, bottom=thin)
 
-    # 头部三行
-    for r, h in ((1, 34), (2, 18), (3, 18), (4, 26), (5, 10)):
+    # 头部三行 + 可选色条行
+    r_head = 6 if has_bar else 5
+    for r, h in ((1, 34), (2, 18), (3, 18)):
         ws.row_dimensions[r].height = h
+    ws.row_dimensions[4].height = 26 if has_bar else 10
+    ws.row_dimensions[5].height = 10
+
     c = ws.cell(row=1, column=start_col,
-                value=f"Amazon US Best Sellers  ·  {name}  ·  Top {len(items)}")
+                value=f"Amazon {mk_label} {rank_en}  ·  {name}  ·  Top {len(items)}")
     c.font = Font(name="Microsoft YaHei", size=16, bold=True, color=INK)
     c.alignment = Alignment(vertical="center")
     c = ws.cell(row=2, column=start_col,
-                value=(f"榜单日期 {date_s}（美西）　|　数据源：amazon.com Best Sellers › {name}"
+                value=(f"榜单日期 {date_s}{'（美西）' if market == 'amazon.com' else ''}"
+                       f"　|　数据源：www.{market} {rank_en} › {name}"
                        f"（node {node_id}）　|　抓取 {crawled_at}"))
     c.font = Font(name="Microsoft YaHei", size=9, color=MUTED)
     c.alignment = Alignment(vertical="center")
-    c = ws.cell(row=3, column=start_col,
-                value=(f"均价 ${avg:,.2f}　中位价 ${med:,.2f}　价格带 ${min(prices):,.2f} – "
-                       f"${max(prices):,.2f}　品牌数 {len(brands)}　头部品牌 "
-                       f"{top_brand[0]}（{top_brand[1]} 席）"))
-    c.font = Font(name="Microsoft YaHei", size=9, color=MUTED)
-    c.alignment = Alignment(vertical="center")
+    parts = []
+    if has_price:
+        parts.append(f"均价 {_money(avg)}　中位价 {_money(med)}　"
+                     f"价格带 {_money(min(prices))} – {_money(max(prices))}")
+    if has_brand and top_brand[0]:
+        parts.append(f"品牌数 {len(brands)}　头部品牌 {top_brand[0]}（{top_brand[1]} 席）")
+    if parts:
+        c = ws.cell(row=3, column=start_col, value="　".join(parts))
+        c.font = Font(name="Microsoft YaHei", size=9, color=MUTED)
+        c.alignment = Alignment(vertical="center")
     for r in (1, 2, 3):
         ws.merge_cells(start_row=r, start_column=start_col, end_row=r, end_column=last_col)
 
-    # 第 4 行：颜色分布色条
-    cnt = collections.Counter(x["color"] for x in items)
-    citems = [{"name": k, "count": cnt[k]} for k in COLOR_ORDER if cnt.get(k)]
-    citems.sort(key=lambda x: (-x["count"], COLOR_ORDER.index(x["name"])))
-    for it in citems:
-        it["pct"] = round(it["count"] / len(items) * 100)
-    gap = 100 - sum(it["pct"] for it in citems)
-    if gap:
-        citems[0]["pct"] += gap
+    # 第 4 行：色系分布色条（仅在保留颜色字段时出现）
+    if has_bar:
+        cnt = collections.Counter(x["color"] for x in items)
+        citems = [{"name": k, "count": cnt[k]} for k in COLOR_ORDER if cnt.get(k)]
+        citems.sort(key=lambda x: (-x["count"], COLOR_ORDER.index(x["name"])))
+        for it in citems:
+            it["pct"] = round(it["count"] / len(items) * 100)
+        gap = 100 - sum(it["pct"] for it in citems)
+        if gap:
+            citems[0]["pct"] += gap
 
-    lab = ws.cell(row=4, column=start_col, value="色系分布")
-    lab.font = Font(name="Microsoft YaHei", size=8.5, bold=True, color=MUTED)
-    lab.alignment = Alignment(horizontal="right", vertical="center")
-    chip = start_col + 1
-    for it in citems:
-        fill, fg = STYLE_COLOR.get(it["name"], STYLE_COLOR["其他 / 未标注"])
-        cc0 = ws.cell(row=4, column=chip,
-                      value=f"{COLOR_SHORT.get(it['name'], it['name'])} {it['count']} · {it['pct']}%")
-        cc0.font = Font(name="Microsoft YaHei", size=8.5, bold=True, color=fg)
-        cc0.alignment = Alignment(horizontal="center", vertical="center")
-        for k in range(card_cols):
-            cc = ws.cell(row=4, column=chip + k)
-            cc.fill = PatternFill("solid", fgColor=fill)
-            cc.border = Border(
-                left=Side(style="thin", color="FFFFFFFF") if k == 0 else None,
-                right=Side(style="thin", color="FFFFFFFF") if k == card_cols - 1 else None,
-                top=Side(style="thin", color="FFFFFFFF"),
-                bottom=Side(style="thin", color="FFFFFFFF"))
-        ws.merge_cells(start_row=4, start_column=chip, end_row=4, end_column=chip + card_cols - 1)
-        chip += card_cols
+        lab = ws.cell(row=4, column=start_col, value="色系分布")
+        lab.font = Font(name="Microsoft YaHei", size=8.5, bold=True, color=MUTED)
+        lab.alignment = Alignment(horizontal="right", vertical="center")
+        chip = start_col + 1
+        for it in citems:
+            fill, fg = STYLE_COLOR.get(it["name"], STYLE_COLOR["其他 / 未标注"])
+            cc0 = ws.cell(row=4, column=chip,
+                          value=f"{COLOR_SHORT.get(it['name'], it['name'])} {it['count']} · {it['pct']}%")
+            cc0.font = Font(name="Microsoft YaHei", size=8.5, bold=True, color=fg)
+            cc0.alignment = Alignment(horizontal="center", vertical="center")
+            for k in range(card_cols):
+                cc = ws.cell(row=4, column=chip + k)
+                cc.fill = PatternFill("solid", fgColor=fill)
+                cc.border = Border(
+                    left=Side(style="thin", color="FFFFFFFF") if k == 0 else None,
+                    right=Side(style="thin", color="FFFFFFFF") if k == card_cols - 1 else None,
+                    top=Side(style="thin", color="FFFFFFFF"),
+                    bottom=Side(style="thin", color="FFFFFFFF"))
+            ws.merge_cells(start_row=4, start_column=chip, end_row=4, end_column=chip + card_cols - 1)
+            chip += card_cols
 
     # 卡片
-    r_head = L["header_rows"]
     for idx, d in enumerate(items):
         band, pos = divmod(idx, per_row)
-        r0 = r_head + band * per_band
+        r0 = r_head + band * band_h
         c0 = start_col + pos * step
-        ws.row_dimensions[r0].height = L["img_row_h"]
-        ws.row_dimensions[r0 + 1].height = 21      # 排名 / 价格
-        ws.row_dimensions[r0 + 2].height = 21      # 品牌
-        # 颜色行高度按原文长度动态算（见下方 cc0），这里不预设固定值
-        ws.row_dimensions[r0 + 4].height = 18      # ASIN
-        ws.row_dimensions[r0 + 5].height = 12      # 卡片间距
+        for k, (_, h) in enumerate(plan):
+            if h:
+                ws.row_dimensions[r0 + k].height = h
+        ws.row_dimensions[r0 + band_h - 1].height = 12     # 卡片间距
 
-        tp, iw, ih = _thumb(d.get("local_img"), thumb_dir)
-        if tp:
-            sc = min(L["img_max_w"] / iw, L["img_max_h"] / ih)
-            w, h = int(iw * sc), int(ih * sc)
-            xi = XLImage(tp)
-            xi.width, xi.height = w, h
-            an = OneCellAnchor()
-            an._from = AnchorMarker(col=c0 - 1, colOff=pixels_to_EMU(max(0, (card_px - w) // 2)),
-                                    row=r0 - 1,
-                                    rowOff=pixels_to_EMU(max(2, (int(L["img_row_h"] * 4 / 3) - h) // 2)))
-            an.ext = XDRPositiveSize2D(pixels_to_EMU(w), pixels_to_EMU(h))
-            xi.anchor = an
-            ws.add_image(xi)
+        if "image" in off:
+            tp, iw, ih = _thumb(d.get("local_img"), thumb_dir)
+            if tp:
+                sc = min(L["img_max_w"] / iw, L["img_max_h"] / ih)
+                w, h = int(iw * sc), int(ih * sc)
+                xi = XLImage(tp)
+                xi.width, xi.height = w, h
+                an = OneCellAnchor()
+                an._from = AnchorMarker(col=c0 - 1, colOff=pixels_to_EMU(max(0, (card_px - w) // 2)),
+                                        row=r0 + off["image"] - 1,
+                                        rowOff=pixels_to_EMU(max(2, (int(L["img_row_h"] * 4 / 3) - h) // 2)))
+                an.ext = XDRPositiveSize2D(pixels_to_EMU(w), pixels_to_EMU(h))
+                xi.anchor = an
+                ws.add_image(xi)
+            ws.cell(row=r0 + off["image"], column=c0).fill = PatternFill("solid", fgColor=CARD_BG)
 
-        ws.cell(row=r0, column=c0).fill = PatternFill("solid", fgColor=CARD_BG)
+        if "head" in off:
+            hr = r0 + off["head"]
+            if has_rank:
+                rk = ws.cell(row=hr, column=c0, value=f"#{d['rank']}")
+                rk.font = Font(name="Arial", size=12, bold=True,
+                               color=(TOP3 if d["rank"] <= 3 else MUTED))
+                rk.alignment = Alignment(horizontal="center", vertical="center")
+            if has_price:
+                # 缺价时写「—」而不是 0：0 会被当成真实价格，# 号位也不该出现
+                pv = d.get("price_usd")
+                pcol = c0 + 1 if has_rank else c0
+                pc = ws.cell(row=hr, column=pcol, value=float(pv) if pv else "—")
+                dec = CUR_DEC.get(_cur(), 2)
+                pc.number_format = f'"{CUR_SYMBOL.get(_cur(), "")}"#,##0' + (".00" if dec else "")
+                pc.font = Font(name="Arial", size=10.5, bold=True, color=INK)
+                pc.alignment = Alignment(horizontal="center", vertical="center")
+                if not has_rank:
+                    ws.merge_cells(start_row=hr, start_column=c0, end_row=hr, end_column=c0 + 1)
 
-        rk = ws.cell(row=r0 + 1, column=c0, value=f"#{d['rank']}")
-        rk.font = Font(name="Arial", size=12, bold=True,
-                       color=(TOP3 if d["rank"] <= 3 else MUTED))
-        rk.alignment = Alignment(horizontal="center", vertical="center")
+        if "brand" in off:
+            br = r0 + off["brand"]
+            bc = ws.cell(row=br, column=c0, value=d.get("brand") or "—")
+            bc.font = Font(name="Microsoft YaHei", size=10, bold=True, color=INK)
+            bc.alignment = Alignment(horizontal="center", vertical="center")
+            ws.merge_cells(start_row=br, start_column=c0, end_row=br, end_column=c0 + 1)
 
-        # 缺价时写「—」而不是 0：0 会被当成真实价格，# 号位也不该出现
-        pv = d.get("price_usd")
-        pc = ws.cell(row=r0 + 1, column=c0 + 1, value=float(pv) if pv else "—")
-        pc.number_format = '"$"#,##0.00'
-        pc.font = Font(name="Arial", size=10.5, bold=True, color=INK)
-        pc.alignment = Alignment(horizontal="center", vertical="center")
+        if "color" in off:
+            cr = r0 + off["color"]
+            # 颜色：显示商品页 Color 属性的原文（如 "Light Hot Pink" / "Off Black 1B"）
+            raw = (d.get("color_raw") or "").strip() or "—"
+            fill_c, _ = STYLE_COLOR.get(d.get("color"), STYLE_COLOR["其他 / 未标注"])
+            try:
+                from openpyxl.cell.rich_text import CellRichText, TextBlock
+                from openpyxl.cell.text import InlineFont
+                cc_val = CellRichText([
+                    TextBlock(InlineFont(rFont="Arial", sz=9, color=fill_c), "● "),
+                    TextBlock(InlineFont(rFont="Microsoft YaHei", sz=8.8, color=MUTED), raw),
+                ])
+            except Exception:
+                cc_val = f"● {raw}"
+            cc0 = ws.cell(row=cr, column=c0, value=cc_val)
+            cc0.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            # 原文可能很长（如 Pre-Style Roll Curl｜Black、Silver+Leopard+Black (Pack of 3)）：
+            # 按显示宽度折行并撑高该行，保证完整原文可见、不被裁掉
+            _w = sum(2 if ord(ch) > 127 else 1 for ch in raw)
+            _lines = min(4, max(1, -(-_w // 24)))
+            # 同一行 10 张卡共用一个行高：取本行最大值，否则后一张短颜色会把前一张撑高的行压回去
+            # （v1.2.2 前曾因此把 36 字符的颜色裁成一行）
+            ws.row_dimensions[cr].height = max(ws.row_dimensions[cr].height or 0, 13 * _lines + 4)
+            ws.merge_cells(start_row=cr, start_column=c0, end_row=cr, end_column=c0 + 1)
 
-        bc = ws.cell(row=r0 + 2, column=c0, value=d.get("brand") or "—")
-        bc.font = Font(name="Microsoft YaHei", size=10, bold=True, color=INK)
-        bc.alignment = Alignment(horizontal="center", vertical="center")
-        ws.merge_cells(start_row=r0 + 2, start_column=c0, end_row=r0 + 2, end_column=c0 + 1)
+        if "asin" in off:
+            ar = r0 + off["asin"]
+            ac = ws.cell(row=ar, column=c0, value=d["asin"])
+            ac.hyperlink = f"https://www.{market}/dp/{d['asin']}"
+            ac.font = Font(name="Arial", size=9, color="FF0563C1", underline="single")
+            ac.alignment = Alignment(horizontal="center", vertical="center")
+            ws.merge_cells(start_row=ar, start_column=c0, end_row=ar, end_column=c0 + 1)
 
-        # 颜色：显示商品页 Color 属性的原文（如 "Light Hot Pink" / "Off Black 1B"）
-        raw = (d.get("color_raw") or "").strip() or "—"
-        fill_c, _ = STYLE_COLOR.get(d.get("color"), STYLE_COLOR["其他 / 未标注"])
-        try:
-            from openpyxl.cell.rich_text import CellRichText, TextBlock
-            from openpyxl.cell.text import InlineFont
-            cc_val = CellRichText([
-                TextBlock(InlineFont(rFont="Arial", sz=9, color=fill_c), "● "),
-                TextBlock(InlineFont(rFont="Microsoft YaHei", sz=8.8, color=MUTED), raw),
-            ])
-        except Exception:
-            cc_val = f"● {raw}"
-        cc0 = ws.cell(row=r0 + 3, column=c0, value=cc_val)
-        cc0.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        # 原文可能很长（如 Pre-Style Roll Curl｜Black、Silver+Leopard+Black (Pack of 3)）：
-        # 按显示宽度折行并撑高该行，保证完整原文可见、不被裁掉
-        _w = sum(2 if ord(ch) > 127 else 1 for ch in raw)
-        _lines = min(4, max(1, -(-_w // 24)))
-        # 同一行 10 张卡共用一个行高：取本行最大值，否则后一张短颜色会把前一张撑高的行压回去（曾导致 36 字符的颜色被裁成一行）
-        ws.row_dimensions[r0 + 3].height = max(ws.row_dimensions[r0 + 3].height or 0, 13 * _lines + 4)
-        ws.merge_cells(start_row=r0 + 3, start_column=c0, end_row=r0 + 3, end_column=c0 + 1)
-
-        ac = ws.cell(row=r0 + 4, column=c0, value=d["asin"])
-        ac.hyperlink = f"https://www.amazon.com/dp/{d['asin']}"
-        ac.font = Font(name="Arial", size=9, color="FF0563C1", underline="single")
-        ac.alignment = Alignment(horizontal="center", vertical="center")
-        ws.merge_cells(start_row=r0 + 4, start_column=c0, end_row=r0 + 4, end_column=c0 + 1)
-
-        for rr in range(r0, r0 + 5):
+        for rr in range(r0, r0 + len(plan)):
             for cc in (c0, c0 + 1):
                 cell = ws.cell(row=rr, column=cc)
                 cell.border = box
@@ -905,23 +1023,26 @@ def _fill_sheet(ws, items, date_s, name, node_id, crawled_at, thumb_dir):
                     cell.fill = PatternFill("solid", fgColor=CARD_BG)
 
         if d["rank"] <= 3:      # 前三名橙色描边
-            for rr in range(r0, r0 + 5):
+            for rr in range(r0, r0 + len(plan)):
                 for cc in (c0, c0 + 1):
                     ws.cell(row=rr, column=cc).border = Border(
                         left=Side(style="thin", color=AMZ) if cc == c0 else None,
                         right=Side(style="thin", color=AMZ) if cc == c0 + 1 else None,
                         top=Side(style="thin", color=AMZ) if rr == r0 else None,
-                        bottom=Side(style="thin", color=AMZ) if rr == r0 + 4 else None)
+                        bottom=Side(style="thin", color=AMZ) if rr == r0 + len(plan) - 1 else None)
 
-    # 底部说明
-    note_row = r_head + ((len(items) - 1) // per_row + 1) * per_band + 1
-    for i, t in enumerate([
-        "说明｜每张卡片 = 一个商品：商品图 + 榜单排名 + 售价（USD）+ 品牌 + 颜色 + ASIN（点击跳转亚马逊商品页）。",
-        "说明｜颜色取亚马逊商品页 Color 属性的原文（如 Light Hot Pink、Off Black 1B），未经改写；"
-        "个别商品无该属性时取标题中的颜色表述；顶部色条是同一批原文归入色系后的统计。",
-        "说明｜排名为类目畅销榜自然位次，非搜索排名；价格取商品页实时售价，个别商品因配送区域限制不显示价格时取榜单卡片价。",
-        "说明｜每日抓取后新建一个以日期命名的表，历史表保留，可做榜单变动对比（新上榜 / 排名跃升 / 掉榜）。",
-    ]):
+    # 底部说明（按实际保留的字段动态生成，字段被藏掉就不再解释它）
+    notes = ["说明｜每张卡片 = 一个商品：" + " + ".join(FIELD_CN[f] for f in fields) + "。"]
+    if "color" in fields:
+        notes.append("说明｜颜色取亚马逊商品页 Color 属性的原文（如 Light Hot Pink、Off Black 1B），未经改写；"
+                     "个别商品无该属性时取标题中的颜色表述；顶部色条是同一批原文归入色系后的统计。")
+    if "rank" in fields or "price" in fields:
+        notes.append(f"说明｜排名为类目{rank_en}的自然位次，非搜索排名；价格取商品页实时售价，"
+                     f"个别商品因配送区域限制不显示价格时取榜单卡片价。")
+    notes.append("说明｜每日抓取后新建一个以日期命名的表，历史表保留，可做榜单变动对比（新上榜 / 排名跃升 / 掉榜）。")
+
+    note_row = r_head + ((len(items) - 1) // per_row + 1) * band_h + 1
+    for i, t in enumerate(notes):
         c = ws.cell(row=note_row + i, column=start_col, value=t)
         c.font = Font(name="Microsoft YaHei", size=8.5, color=MUTED)
         ws.merge_cells(start_row=note_row + i, start_column=start_col,
@@ -938,16 +1059,29 @@ def _slug(name):
     return re.sub(r"[^A-Za-z0-9]+", "_", name).strip("_")
 
 
-def _verify(path, expects):
-    """expects: {工作表名: 卡片数}"""
+# 文件名前缀：畅销榜保持 Amazon_BestSellers_（历史文件与定时任务都依赖这个名字），
+# 其他榜单类型换前缀，避免同一类目的不同榜单互相覆盖
+OUT_PREFIX = {"bestsellers": "Amazon_BestSellers", "new-releases": "Amazon_NewReleases",
+              "movers-and-shakers": "Amazon_MoversShakers",
+              "most-wished-for": "Amazon_MostWishedFor"}
+
+
+def _out_name(name, stamp):
+    return f"{OUT_PREFIX.get(CFG['rank_type'], 'Amazon_Board')}_{_slug(name)}_{stamp}.xlsx"
+
+
+def _verify(path, expects, expect_images=True):
+    """expects: {工作表名: 卡片数}；藏掉商品图时 expect_images=False"""
     from openpyxl import load_workbook
     wb = load_workbook(path)
     for sheet, n in expects.items():
         ws = wb[sheet]
         imgs = len(ws._images)
         links = sum(1 for r in ws.iter_rows() for c in r if c.hyperlink)
-        assert imgs == n, f"[{sheet}] 图片数 {imgs} != {n}"
-        assert links == n, f"[{sheet}] 超链数 {links} != {n}"
+        want_img = n if expect_images else 0
+        assert imgs == want_img, f"[{sheet}] 图片数 {imgs} != {want_img}"
+        if "asin" in CFG["fields"]:
+            assert links == n, f"[{sheet}] 超链数 {links} != {n}"
     return True
 
 
@@ -962,9 +1096,9 @@ def stage_build(items, workdir, date_s, name, node_id, crawled_at):
 
     out_dir = os.path.join(workdir, "output")
     os.makedirs(out_dir, exist_ok=True)
-    out = os.path.join(out_dir, f"Amazon_BestSellers_{_slug(name)}_{date_s}.xlsx")
+    out = os.path.join(out_dir, _out_name(name, date_s))
     wb.save(out)
-    _verify(out, {date_s: len(items)})
+    _verify(out, {date_s: len(items)}, expect_images=("image" in CFG["fields"]))
     log(f"⑤ 出表完成：{out}（{len(items)} 图 / {len(items)} 链）")
     return out
 
@@ -1011,9 +1145,9 @@ def stage_build_monthly(workdir, month, name, node_id, upto=None, out_path=None)
     wb.active = wb.sheetnames.index(dates[-1])       # 默认停在最新一天
     out_dir = os.path.join(workdir, "output")
     os.makedirs(out_dir, exist_ok=True)
-    out = out_path or os.path.join(out_dir, f"Amazon_BestSellers_{_slug(name)}_{month}.xlsx")
+    out = out_path or os.path.join(out_dir, _out_name(name, month))
     wb.save(out)
-    _verify(out, expects)
+    _verify(out, expects, expect_images=("image" in CFG["fields"]))
     size_mb = os.path.getsize(out) / 1024 / 1024
     log(f"⑤ 月度表完成：{out}（{len(dates)} 个工作表 / {size_mb:.1f} MB）")
     return out
@@ -1072,10 +1206,21 @@ def _release_lock(lock):
 
 # ---------------------------------------------------------------- 主流程
 def main():
-    ap = argparse.ArgumentParser(description="亚马逊 Best Sellers 每日看板流水线")
+    ap = argparse.ArgumentParser(
+        description="亚马逊类目榜单每日看板流水线（任意站点 / 任意类目 / 畅销榜·新品榜·飙升榜·心愿单榜）")
     ap.add_argument("--date", default=dt.date.today().isoformat(), help="表名/目录用日期，默认今天")
     ap.add_argument("--node", default="702381011", help="类目节点 ID（Hair Replacement Wigs=702381011）")
     ap.add_argument("--name", default="Hair Replacement Wigs", help="类目英文名")
+    ap.add_argument("--market", default="amazon.com",
+                    help="站点域名，如 amazon.com / amazon.co.uk / amazon.de / amazon.co.jp")
+    ap.add_argument("--currency", default=None, help="币种代码，默认按站点推断（USD/GBP/EUR/JPY…）")
+    ap.add_argument("--rank-type", default="bestsellers", choices=list(RANK_TYPES),
+                    help="榜单类型：bestsellers 畅销榜 / new-releases 新品榜 / "
+                         "movers-and-shakers 飙升榜 / most-wished-for 心愿单榜")
+    ap.add_argument("--slug", default="beauty",
+                    help="URL 里的顶层类目段（仅用于拼链接；Amazon 按 node 路由，一般不用改）")
+    ap.add_argument("--fields", default=",".join(FIELDS),
+                    help=f"卡片显示哪些字段，逗号分隔，可选：{','.join(FIELDS)}")
     ap.add_argument("--workdir", default=None,
                     help="工程根目录（含 data/ 与 output/），默认：项目内=项目根，技能内=当前目录")
     ap.add_argument("--version", action="version", version=f"amazon-bsr-board {__version__}")
@@ -1090,8 +1235,25 @@ def main():
                     help="不生成 HTML 看板（默认出表时顺手生成当月 HTML，可切日期）")
     args = ap.parse_args()
 
+    # ---- 参数归一化：站点/币种/榜单类型/字段
+    market = args.market.strip().lower().replace("https://", "").replace("http://", "").strip("/")
+    if market not in MARKETS:
+        log(f"! 未收录的站点 {market}，按 amazon.com 的币种与语言处理（币种可用 --currency 指定）")
+    CFG["market"] = market
+    CFG["currency"] = (args.currency or MARKETS.get(market, ("", "USD"))[1]).upper()
+    CFG["rank_type"] = args.rank_type
+    CFG["slug"] = args.slug
+    picked = [f.strip().lower() for f in args.fields.split(",") if f.strip()]
+    bad = [f for f in picked if f not in FIELDS]
+    if bad:
+        raise SystemExit(f"--fields 有不认识的字段 {bad}；可选：{list(FIELDS)}")
+    if not picked:
+        raise SystemExit("--fields 不能为空")
+    CFG["fields"] = [f for f in FIELDS if f in picked]      # 按固定顺序排，避免行序乱掉
+
     workdir = os.path.abspath(args.workdir or _default_workdir())
-    log(f"amazon-bsr-board v{__version__}")
+    log(f"amazon-bsr-board v{__version__}｜{market}｜{RANK_TYPES[args.rank_type][2]}"
+        f"｜币种 {CFG['currency']}｜字段 {'+'.join(CFG['fields'])}")
     _sync_hint(workdir)
     lock = _acquire_lock(workdir)
     crawled_at = f"{dt.datetime.now():%Y-%m-%d %H:%M}（北京时间）"
@@ -1112,11 +1274,13 @@ def main():
         if len(items) < args.want:
             raise SystemExit(f"只抓到 {len(items)} 条（期望 {args.want}），"
                              f"通常是网络/反爬导致榜单未加载完，请重跑一次")
-        items = stage_enrich(items, workdir, args.date, workers=args.workers)
+        items = stage_enrich(items, workdir, args.date, market=market, workers=args.workers)
         items = stage_images(items, workdir, args.date, workers=max(4, args.workers + 4))
         items = stage_color(items)
         json.dump(items, open(json_path, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
         json.dump({"date": args.date, "node": args.node, "name": args.name,
+                   "market": market, "currency": CFG["currency"],
+                   "rank_type": args.rank_type, "fields": CFG["fields"],
                    "count": len(items), "crawled_at": crawled_at},
                   open(os.path.join(os.path.dirname(json_path), "meta.json"), "w",
                        encoding="utf-8"), ensure_ascii=False, indent=1)
@@ -1134,7 +1298,9 @@ def main():
         if not args.no_html:
             try:
                 from render_html import render as render_board
-                render_board(workdir, month=month, name=args.name, node=args.node)
+                render_board(workdir, month=month, name=args.name, node=args.node,
+                             market=market, currency=CFG["currency"],
+                             rank_type=args.rank_type)
             except Exception as e:      # HTML 只是附加产物，失败不影响表格交付
                 log(f"HTML 看板生成失败（表格不受影响）：{e}")
     finally:
