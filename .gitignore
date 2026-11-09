@@ -1,0 +1,18 @@
+# 抓取数据与产物（体积大、含第三方图片，不入库）
+data/
+output/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 打包件
+*.zip
