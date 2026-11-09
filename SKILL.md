@@ -1,8 +1,13 @@
 ---
-name: 亚马逊BSR看板
-version: 1.3.0
-description: 抓取亚马逊任意站点、任意类目榜单（畅销榜 / 新品榜 / 飙升榜 / 心愿单榜）前 N 名（默认 100），逐条补齐品牌、当地币种售价与商品页颜色属性原文、下载商品图，产出「卡片看板」式 Excel 与可切日期的 HTML：一天一张以日期命名的工作表，一个月一个文件，跨月自动新建；卡片字段（图/排名/价格/品牌/颜色/ASIN）可增删。用于长期积累类目榜单数据，做排名跃升、新上榜、掉榜与颜色分布分析。触发词：亚马逊榜单、Best Sellers、New Releases、BSR 看板、类目排名、Top 100 抓取、竞品榜单监控、每日榜单表、按日期出表、monthly bestseller board；或用户提供类目节点 ID，要求出带商品图、ASIN 链接、品牌、价格的排名表。
+name: amazon-bsr-board
+version: 1.3.1
+description: 亚马逊 BSR 看板（amazon-bsr-board）：抓取亚马逊任意站点、任意类目榜单（畅销榜 / 新品榜 / 飙升榜 / 心愿单榜）前 N 名（默认 100），逐条补齐品牌、当地币种售价与商品页颜色属性原文、下载商品图，产出「卡片看板」式 Excel 与可切日期的 HTML：一天一张以日期命名的工作表，一个月一个文件，跨月自动新建；卡片字段（图/排名/价格/品牌/颜色/ASIN）可增删。用于长期积累类目榜单数据，做排名跃升、新上榜、掉榜与颜色分布分析。触发词：亚马逊榜单、Best Sellers、New Releases、BSR 看板、类目排名、Top 100 抓取、竞品榜单监控、每日榜单表、按日期出表、monthly bestseller board；或用户提供类目节点 ID，要求出带商品图、ASIN 链接、品牌、价格的排名表。
+license: MIT
 agent_created: true
+metadata:
+  display_name: 亚马逊BSR看板
+  category: amazon-operations
+  repo: https://github.com/Xebet/amazon-bsr-board
 ---
 
 # 亚马逊 BSR 看板（类目榜单长期数据工具）
@@ -165,6 +170,10 @@ HTML 体积很小（~0.1MB/月，图片走图床）；加 `--embed` 转 base64 �
 本技能有两份同源代码：项目内 `workflow/`（开发/调试用）与本技能目录（分发用）。
 
 - 版本号有两处，必须一致：`SKILL.md` 的 `version:` 与 `scripts/run.py` 的 `__version__`，由同步脚本统一维护
+- **`name` 必须是小写英文连字符、且等于目录名**（`amazon-bsr-board`）。这是 Agent Skills 开放规范
+  （agentskills.io，Anthropic 维护）的硬要求：WorkBuddy 本身容忍中文名，但 Claude Code / Cursor / Codex /
+  MS Agent Framework 这些按规范实现的加载器会直接不认。中文名写在 `description` 开头与 `metadata.display_name`，
+  不要放进 `name`。`tools/sync_skill.py` 打包前会校验，不合规直接退出。
 - 脚本靠 `_default_workdir()` 自适应位置：项目内 `<root>/workflow/pipeline/run.py` → 解析到 `<root>`；技能内 `<skill>/scripts/run.py` → 解析到**当前工作目录**。因此两份代码可以做到字节一致
 - 运行时会自检：若当前目录下存在 `workflow/pipeline/run.py` 且与自身不一致，日志会打印 `⚠️ 检测到两处流水线脚本不一致` 并给出同步命令
 - 改完代码/文档后执行同步（会校验、升版本、重打包）：

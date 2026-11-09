@@ -31,7 +31,7 @@ import sys
 import tempfile
 import time
 
-__version__ = "1.3.0"      # 与 SKILL.md 的 version 字段保持一致，由 tools/sync_skill.py 统一维护
+__version__ = "1.3.1"      # 与 SKILL.md 的 version 字段保持一致，由 tools/sync_skill.py 统一维护
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")

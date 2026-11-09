@@ -64,6 +64,18 @@ pip install openpyxl pillow playwright      # playwright 用系统 Edge 驱动�
 
 不想用 Agent 也能直接跑脚本，依赖同上。
 
+## 在其他 Agent 里用
+
+这个技能按 **Agent Skills 开放规范**（agentskills.io，Anthropic 维护，Claude Code / Cursor / Codex /
+MS Agent Framework 等均已支持）写的：
+
+- 目录名与 `SKILL.md` 里的 `name` 都是 `amazon-bsr-board`——规范要求 `name` 只能是小写字母、数字、连字符，
+  且必须与父目录名完全一致，否则按规范实现的加载器会直接不加载
+- 中文名「亚马逊BSR看板」放在 `description` 开头和 `metadata.display_name`，不影响中文语义匹配
+- 把整个目录拷到目标 Agent 的技能目录即可（Claude Code 个人技能放 `~/.claude/skills/`，其他产品按各自文档）；
+  运行依赖是 `openpyxl`、`pillow`、`playwright` 加系统 Edge，与 WorkBuddy 无关
+- 脚本不依赖任何 WorkBuddy 专有 API，`--workdir` 指到含 `data/`、`output/` 的目录就能跑
+
 ## 用法
 
 ```bash
