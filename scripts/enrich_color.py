@@ -85,15 +85,29 @@ async def scrape(asins, market, workers):
     return results
 
 
+ROOT = os.path.dirname(HERE)                                  # workflow/ 或 <skill>/
+
+
+def _default_workdir():
+    """同一份代码在两种位置都能跑对，因此技能版与项目版可以字节一致：
+    - 项目内  <root>/workflow/pipeline/<脚本>.py  ->  <root>
+    - 技能内  <skill>/scripts/<脚本>.py           ->  当前工作目录
+    """
+    if os.path.basename(ROOT) == "workflow":
+        return os.path.dirname(ROOT)
+    return os.getcwd()
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--workdir", default=None, help="工程根目录，默认=当前工作目录")
+    ap.add_argument("--workdir", default=None,
+                    help="工程根目录（含 data/ 与 output/），默认：项目内=项目根，技能内=当前目录")
     ap.add_argument("--market", default="amazon.com")
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--dates", default="", help="只处理指定日期，逗号分隔")
     args = ap.parse_args()
 
-    wd = os.path.abspath(args.workdir or os.getcwd())
+    wd = os.path.abspath(args.workdir or _default_workdir())
     data_dir = os.path.join(wd, "data")
     want = [d.strip() for d in args.dates.split(",") if d.strip()]
 

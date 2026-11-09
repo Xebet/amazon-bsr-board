@@ -110,16 +110,27 @@ def render(workdir, month=None, date=None, name="Hair Replacement Wigs",
     return out
 
 
+def _default_workdir():
+    """同一份代码在两种位置都能跑对，因此技能版与项目版可以字节一致：
+    - 项目内  <root>/workflow/pipeline/<脚本>.py  ->  <root>
+    - 技能内  <skill>/scripts/<脚本>.py           ->  当前工作目录
+    """
+    if os.path.basename(ROOT) == "workflow":
+        return os.path.dirname(ROOT)
+    return os.getcwd()
+
+
 def main():
     ap = argparse.ArgumentParser(description="把当月每天的数据渲染成一个可切日期的 HTML 看板")
     ap.add_argument("--month", default=None, help="月份 YYYY-MM（与 --date 二选一）")
     ap.add_argument("--date", default=None, help="只渲染到该日期（YYYY-MM-DD），月份自动推断")
-    ap.add_argument("--workdir", default=None, help="工程根目录，默认=当前工作目录")
+    ap.add_argument("--workdir", default=None,
+                    help="工程根目录（含 data/ 与 output/），默认：项目内=项目根，技能内=当前目录")
     ap.add_argument("--name", default="Hair Replacement Wigs")
     ap.add_argument("--node", default="702381011")
     ap.add_argument("--embed", action="store_true", help="图片转 base64 内嵌（可离线，文件更大）")
     args = ap.parse_args()
-    render(args.workdir or os.getcwd(), month=args.month, date=args.date,
+    render(args.workdir or _default_workdir(), month=args.month, date=args.date,
            name=args.name, node=args.node, embed=args.embed)
 
 

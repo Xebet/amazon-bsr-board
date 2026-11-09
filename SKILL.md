@@ -1,6 +1,6 @@
 ---
 name: 亚马逊BSR看板
-version: 1.2.0
+version: 1.2.1
 description: 抓取亚马逊美国站（或其他站点）Best Sellers 类目榜单前 N 名（默认 100），逐条补齐品牌、美元售价与商品页颜色属性原文（如 Light Hot Pink、Off Black 1B）、下载商品图，产出「卡片看板」式 Excel 与可切日期的 HTML：一天一张以日期命名的工作表，一个月一个文件，跨月自动新建。用于亚马逊选品、竞品榜单监控、BSR（Best Sellers Rank）追踪。触发词：亚马逊榜单、Best Sellers、BSR 看板、类目排名、Top 100 抓取、竞品榜单监控、每日榜单表、按日期出表、monthly bestseller board；或用户提供类目节点 ID，要求出带商品图、ASIN 链接、品牌、价格的排名表。
 agent_created: true
 ---
