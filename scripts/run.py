@@ -31,7 +31,7 @@ import sys
 import tempfile
 import time
 
-__version__ = "1.2.1"      # 与 SKILL.md 的 version 字段保持一致，由 tools/sync_skill.py 统一维护
+__version__ = "1.2.2"      # 与 SKILL.md 的 version 字段保持一致，由 tools/sync_skill.py 统一维护
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
@@ -887,7 +887,8 @@ def _fill_sheet(ws, items, date_s, name, node_id, crawled_at, thumb_dir):
         # 按显示宽度折行并撑高该行，保证完整原文可见、不被裁掉
         _w = sum(2 if ord(ch) > 127 else 1 for ch in raw)
         _lines = min(4, max(1, -(-_w // 24)))
-        ws.row_dimensions[r0 + 3].height = 13 * _lines + 4
+        # 同一行 10 张卡共用一个行高：取本行最大值，否则后一张短颜色会把前一张撑高的行压回去（曾导致 36 字符的颜色被裁成一行）
+        ws.row_dimensions[r0 + 3].height = max(ws.row_dimensions[r0 + 3].height or 0, 13 * _lines + 4)
         ws.merge_cells(start_row=r0 + 3, start_column=c0, end_row=r0 + 3, end_column=c0 + 1)
 
         ac = ws.cell(row=r0 + 4, column=c0, value=d["asin"])
