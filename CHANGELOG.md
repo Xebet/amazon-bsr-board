@@ -17,4 +17,14 @@
 
 ## 1.3.0 — 2026-11-09
 
-- 新增 --rank-type（新品榜/飙升榜/心愿单榜）、--market（17 个站点，币种/语言随之切换）、--fields（卡片字段可增删，版式自动收紧）；修复颜色源端截断：_clean_color 去掉 v[:40]、正则上限 60→200，实测 B0HDNSRX2H 由 40 字符恢复为 53 字符；文件名前缀随榜单类型（Amazon_NewReleases_ 等），避免同类目不同榜单互相覆盖；HTML 模板改为数据驱动（站点/榜单名/币种/链接域名）；SPEC/SOP/CHECKLIST/SKILL/README 补『可配置项』与多站点真实限制
+**通用化：从「假发专用」回到「任意类目榜单工具」**
+
+- 新增 `--rank-type`：`bestsellers` 畅销榜 / `new-releases` 新品榜 / `movers-and-shakers` 飙升榜 / `most-wished-for` 心愿单榜，同一套卡片版式，只换 URL 与文案
+- 新增 `--market`：17 个站点（.com / .co.uk / .de / .co.jp / .ca / .com.au / .in / .com.mx …），币种与语言随站点切换；`--currency` 可覆盖
+- 新增 `--fields`：卡片字段（图/排名/价格/品牌/颜色/ASIN）可增删，段高、色条、冻结行随之自适应，卡片不留空行
+- 新增 `--slug`：URL 里的顶层类目段（实测 Amazon 按 node 路由，一般不用改）
+- 修复**颜色源端截断**：`_clean_color` 末尾的 `v[:40]` 已去掉，正则捕获上限 60 → 200；实测 `B0HDNSRX2H` 由 40 字符恢复为 53 字符（`Honey Blonde Highlight｜Side Part｜7x5 Lace ｜Drawstring`）
+- 文件名前缀随榜单类型（`Amazon_NewReleases_` / `Amazon_MoversShakers_` / `Amazon_MostWishedFor_`），避免同类目不同榜单互相覆盖；畅销榜保持 `Amazon_BestSellers_` 不变，历史文件与定时任务不受影响
+- HTML 模板改为数据驱动：站点名、榜单名、币种符号与小数位、ASIN 链接域名都从数据里取
+- 文档：SPEC/SOP/CHECKLIST/SKILL/README 补「可配置项」章节，并写明多站点的真实限制（类目节点按站点各一套、非美国站易被拦）
+- 新增产物截图 `docs/screenshots/`
