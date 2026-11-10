@@ -31,7 +31,7 @@ import sys
 import tempfile
 import time
 
-__version__ = "1.3.1"      # 与 SKILL.md 的 version 字段保持一致，由 tools/sync_skill.py 统一维护
+__version__ = "1.3.2"      # 与 SKILL.md 的 version 字段保持一致，由 tools/sync_skill.py 统一维护
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
@@ -219,7 +219,7 @@ LAYOUT = dict(
     img_row_h=112,       # 图片行高（pt）
     img_max_w=126,       # 图片最大宽（px）
     img_max_h=138,       # 图片最大高（px）
-    mdw=8,               # 默认字体最大数字宽度（本机默认字体为 8，非 7）
+    mdw=8,               # 默认字体最大数字宽度（Windows 默认字体为 8，非 7）
 )
 
 INK, MUTED, LINE = "FF1F2937", "FF6B7280", "FFDCE1E8"

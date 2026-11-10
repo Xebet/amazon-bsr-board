@@ -17,7 +17,7 @@
 | 产出粒度 | 一个月一个文件 | 文件名带 `YYYY-MM`，内含当月每日一张表，日期升序 |
 | HTML 看板 | 同月同文件 | `board_<slug>_<YYYY-MM>.html`，顶部日期切换，默认最新一天 |
 
-文件名前缀随榜单类型变：畅销榜 `Amazon_BestSellers_<slug>_<YYYY-MM>.xlsx`（历史文件与定时任务沿用此名），新品榜 `Amazon_NewReleases_…`，飙升榜 `Amazon_MoversShakers_…`，心愿单榜 `Amazon_MostWishedFor_…`，避免同类目不同榜单互相覆盖。
+文件名前缀随榜单类型变：畅销榜 `Amazon_BestSellers_<slug>_<YYYY-MM>.xlsx`（保留此名以兼容已有文件与脚本），新品榜 `Amazon_NewReleases_…`，飙升榜 `Amazon_MoversShakers_…`，心愿单榜 `Amazon_MostWishedFor_…`，避免同类目不同榜单互相覆盖。
 
 **类目节点怎么找**：`https://www.amazon.com/gp/bestsellers/beauty/` → 逐层点进目标类目，浏览器地址栏 `zgbs/beauty/<节点ID>` 里的数字就是节点 ID。URL 里的顶层类目段（`beauty`）只用于拼链接，Amazon 按 node 路由，配错也会跳对，所以换类目只需换 `--node`。
 
@@ -42,7 +42,7 @@
 **网格**
 - 每行 10 张卡片，共 10 行（100 个商品），每段 6 行（5 行卡片 + 1 行间隔）
 - 每张卡占 **2 列**，卡片之间空 **1 列**做留白 → 一行占用列宽 = 10×3-1 = 29 列
-- 单列宽 `11.2` 字符（本机默认字体下 = **90px**），留白列宽 `1.5`
+- 单列宽 `11.2` 字符（Excel 默认字体下 = **90px**），留白列宽 `1.5`
 - A 列宽 `1.4` 作左边距，卡片从 **B 列**开始
 - 卡片区从**第 6 行**开始；每张卡纵向占 5 行 + 1 行间隔（行高：112 / 21 / 21 / 动态 / 18 / 12 pt）
 

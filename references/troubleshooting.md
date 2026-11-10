@@ -84,8 +84,8 @@ f"https://m.media-amazon.com/images/I/{ID}._AC_SL400_.jpg"   # 失败退 SL500 �
 
 两个必须记住的细节：
 
-1. **列宽→像素换算**：`px = round(((256*w + round(128/mdw))/256)*mdw)`，`mdw` 是本机默认字体的最大数字宽度。
-   本机实测 `mdw=8`，所以列宽 11.2 字符 = **90px**，一张卡（2 列）= **180px**。
+1. **列宽→像素换算**：`px = round(((256*w + round(128/mdw))/256)*mdw)`，`mdw` 是 Excel 默认字体的最大数字宽度。
+   Windows 默认字体下实测 `mdw=8`，所以列宽 11.2 字符 = **90px**，一张卡（2 列）= **180px**。
    按 `11.2*7+5=83px` 估算会让图片整体偏左约 11px。
 2. **价格单元格不要设缩进**（`Alignment(indent=1)`），否则实际可用宽度不够，Excel 直接显示 `#######`。
 
@@ -97,7 +97,9 @@ f"https://m.media-amazon.com/images/I/{ID}._AC_SL400_.jpg"   # 失败退 SL500 �
 | 几何断言 | 图片是否真居中 | Excel COM：`Range.Left/Width`、`Shape.Left/Width`，比对 `(卡宽-图宽)/2`，误差 < 1pt |
 | 视觉抽查 | 版式观感 | Excel COM `Workbook.SaveAs(path, 44)` 导出 HTML → 浏览器截图 |
 
-注意：`ExportAsFixedFormat` 导 PDF 在本机会让 Excel 进程崩掉，别用。
+注意：导 PDF 分两种写法，**按工作表导**（`ws.ExportAsFixedFormat(0, path)`）实测可用，
+100 张卡的工作表约 1.3MB / 3 页，适合给人看或转图片；**整本工作簿导**（`wb.ExportAsFixedFormat`）
+在数据量大时容易让 Excel 进程崩掉，别用。
 另外 HTML 导出会把列宽压缩、图片按绝对尺寸叠加，**看图只能判观感，几何结论必须用 COM 读数**。
 
 ## 7.4 性能与并发
@@ -113,7 +115,7 @@ f"https://m.media-amazon.com/images/I/{ID}._AC_SL400_.jpg"   # 失败退 SL500 �
 ## 7.5 运行安全（并发 / 中断恢复）
 
 - **并发锁**：`data/.run.lock`。已有任务在跑时新任务直接退出（
-  `另一个抓取任务正在运行`），避免定时任务与手动运行互相覆盖。锁超过 3 小时视为失效。
+  `另一个抓取任务正在运行`），避免定时运行与手动运行互相覆盖。锁超过 3 小时视为失效。
 - **中断保护**：抓取阶段只写 `data/<日期>/raw_items.json`（只有 rank/asin/title/img），
   补全品牌价格后才写 `items.json`。所以 `items.json` 缺失或被写成原始态时，
   用 `--skip-fetch` 会直接报错并提示「去掉 --skip-fetch 重跑」。

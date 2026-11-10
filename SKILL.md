@@ -1,6 +1,6 @@
 ---
 name: amazon-bsr-board
-version: 1.3.1
+version: 1.3.2
 description: 亚马逊 BSR 看板（amazon-bsr-board）：抓取亚马逊任意站点、任意类目榜单（畅销榜 / 新品榜 / 飙升榜 / 心愿单榜）前 N 名（默认 100），逐条补齐品牌、当地币种售价与商品页颜色属性原文、下载商品图，产出「卡片看板」式 Excel 与可切日期的 HTML：一天一张以日期命名的工作表，一个月一个文件，跨月自动新建；卡片字段（图/排名/价格/品牌/颜色/ASIN）可增删。用于长期积累类目榜单数据，做排名跃升、新上榜、掉榜与颜色分布分析。触发词：亚马逊榜单、Best Sellers、New Releases、BSR 看板、类目排名、Top 100 抓取、竞品榜单监控、每日榜单表、按日期出表、monthly bestseller board；或用户提供类目节点 ID，要求出带商品图、ASIN 链接、品牌、价格的排名表。
 license: MIT
 agent_created: true
@@ -106,7 +106,7 @@ python <skill>/scripts/render_html.py --month YYYY-MM [--market ...] [--rank-typ
    - 不做这一步，非当地 IP 下会有 30–40 条商品不显示价格（历史上因此让均价低估约 30%）。启动那次 prime 失败不必立刻干预，看最终缺价数，浏览器补抓阶段会重新 prime。
 6. **图片完整性**：下载后用 `Image.load()` 真正解码校验，截断图（8KB 左右）要发现并重下；嵌表用 ≤200px 缩略图控制体积。
 7. **一月一文件**：openpyxl 读回 xlsx 会**丢掉已嵌入图片**，所以不能「打开旧文件追加一张表」。必须用 `data/<当月>/*` 全部快照整体重建（`stage_build_monthly`）。副作用是幂等：同一天重跑只覆盖当天表。
-8. **图片居中用真实列宽**：`px = round(((256*w + round(128/mdw))/256)*mdw)`，本机 `mdw=8` → 列宽 11.2 字符 = 90px，一张卡（2 列）= 180px。按 `11.2*7+5` 估算会让图片整体偏左约 11px。
+8. **图片居中用真实列宽**：`px = round(((256*w + round(128/mdw))/256)*mdw)`，Excel 默认字体下 `mdw=8` → 列宽 11.2 字符 = 90px，一张卡（2 列）= 180px。按 `11.2*7+5` 估算会让图片整体偏左约 11px。
 9. **价格单元格不要设缩进**，否则实际宽度不足会显示 `#######`。
 10. **卡片文字全部居中**：左对齐会让宽卡片中间出现大片空白。
 
@@ -165,30 +165,17 @@ HTML 体积很小（~0.1MB/月，图片走图床）；加 `--embed` 转 base64 �
 先判多色（ombre / highlight / two-tone / colorful / rainbow / gradient / "X to Y" / "black and white" → 渐变挑染），再按**出现位置最靠前**的单色归类（白/银 → 黑 → 金 → 棕 → 红 → 粉 → 紫 → 蓝 → 橙 → 绿）。
 归类入参顺序是 `classify_color(color_raw, title)`：**先看原文 `color_raw`，原文里没有颜色词才退回标题**（所以 `Brown Mix Blonde Highlights` 现在能正确进「渐变 / 挑染」，不再被截成 `Brown` 误判棕色）。都不中则 `其他 / 未标注`——卖家把规格文案填进 Color 的条目（`CR6000`、`200%Density 13x4 Lace Front Wig` 等）就落在这里，属预期。边界条目按商品页 `Color` 人工校准，映射写在 `scripts/run.py` 的 `COLOR_OVERRIDE`。
 
-## 版本与同步
+## 版本与命名
 
-本技能有两份同源代码：项目内 `workflow/`（开发/调试用）与本技能目录（分发用）。
-
-- 版本号有两处，必须一致：`SKILL.md` 的 `version:` 与 `scripts/run.py` 的 `__version__`，由同步脚本统一维护
+- 版本号有两处，必须一致：`SKILL.md` 的 `version:` 与 `scripts/run.py` 的 `__version__`；改版本两处一起改。
+  运行 `python scripts/run.py --version` 可查当前值。
 - **`name` 必须是小写英文连字符、且等于目录名**（`amazon-bsr-board`）。这是 Agent Skills 开放规范
-  （agentskills.io，Anthropic 维护）的硬要求：WorkBuddy 本身容忍中文名，但 Claude Code / Cursor / Codex /
-  MS Agent Framework 这些按规范实现的加载器会直接不认。中文名写在 `description` 开头与 `metadata.display_name`，
-  不要放进 `name`。`tools/sync_skill.py` 打包前会校验，不合规直接退出。
-- 脚本靠 `_default_workdir()` 自适应位置：项目内 `<root>/workflow/pipeline/run.py` → 解析到 `<root>`；技能内 `<skill>/scripts/run.py` → 解析到**当前工作目录**。因此两份代码可以做到字节一致
-- 运行时会自检：若当前目录下存在 `workflow/pipeline/run.py` 且与自身不一致，日志会打印 `⚠️ 检测到两处流水线脚本不一致` 并给出同步命令
-- 改完代码/文档后执行同步（会校验、升版本、重打包）：
+  （agentskills.io，Anthropic 维护）的硬要求：部分产品容忍中文名，但 Claude Code / Cursor / Codex /
+  MS Agent Framework 这些按规范实现的加载器会直接不加载。中文名写在 `description` 开头与
+  `metadata.display_name`，不要放进 `name`。
+- 工程目录：默认取**当前工作目录**（需要含 `data/`、`output/`，不存在会自动建），也可用 `--workdir` 指定。
 
-```bash
-python workflow/tools/sync_skill.py --check     # 只检查，不写文件
-python workflow/tools/sync_skill.py             # 同步 + 升补丁号
-python workflow/tools/sync_skill.py --minor     # 口径/功能变更时升次版本号
-```
-
-**注意**：不要用「整文件覆盖」的方式手工同步。2026-11-09 就是这么把项目专用的 `--workdir` 默认值带进技能，导致技能在别人的工程里去找 `~/.workbuddy/skills/data/` 而直接失败。
-
-**在项目里改了这套流程的口径（颜色规则、版式、字段含义）时，务必回到本文件同步改一遍**——
-`SKILL.md` 不参与自动同步，只由同步脚本改 `version:` 一行。两处说法不一致，就是下次执行时出错的开始。
-
+## 验收
 ## 验收
 
 交付前按 `references/acceptance.md` 逐条自检，并把结果如实报给用户（通过/不通过 + 证据）。脚本内已内建断言：工作表名 = 日期、每张表图片数 = 卡片数（`--fields` 去掉 image 时不校验图片）、超链数 = 卡片数。
