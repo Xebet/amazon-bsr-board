@@ -1,6 +1,6 @@
 # 亚马逊 BSR 看板 · amazon-bsr-board
 
-**把亚马逊类目榜单前 100 名抓成「能直接看的卡片看板」，一天一页、一月一册，长期积累成排名与颜色的时间序列。**
+**把亚马逊类目榜单前 N 名（默认 100）抓成「能直接看的卡片看板」，一天一页、一月一册，长期积累成排名与颜色的时间序列。**
 
 榜单页通篇只有排名、标题和价格。真正决定要不要跟的是另外几件事：这个位置是哪个品牌在守、
 卖多少钱、什么颜色在起量、新品有没有冲进来。所以这个工具会把榜单页缺的信息（品牌、售价、颜色属性原文、
@@ -28,14 +28,16 @@
 ## 一次运行产出什么
 
 ```
-output/Amazon_BestSellers_<类目>_<YYYY-MM>.xlsx   一个月一个文件，一天一张以日期命名的工作表
-output/board_<类目>_<YYYY-MM>.html                一个月一个文件，顶部按钮切日期，默认最新一天
+output/Amazon_BestSellers_<类目>_<YYYY-MM>.xlsx   Excel：一个月一个文件，一天一张以日期命名的工作表
+output/board_<类目>_<YYYY-MM>.html                HTML：一个月一个文件，顶部按钮切日期，默认最新一天
 data/<YYYY-MM-DD>/items.json                      当天结构化快照（跨日对比的原料）
-output/.../images/                                商品图（嵌进表格，不是外链）
+data/<YYYY-MM-DD>/images/                         商品图（打包进表格，不是外链）
 ```
 
-- **Excel**：卡片看板版式，每行 10 张、共 100 张；顶部三行信息 + 一行色系分布色条；前 3 名橙色描边
+- **Excel**：卡片看板版式，每行 10 张（默认 Top 100 即 10 行）；顶部三行信息 + 一行色系分布色条（用 `--fields` 去掉颜色字段时没有色条）；前 3 名橙色描边
 - **HTML**：单文件，当月所有日期都在里面，点日期即切换；图片默认走亚马逊图床，`--embed` 可离线
+- **文件名前缀随榜单类型变**：畅销榜 `Amazon_BestSellers_` / 新品榜 `Amazon_NewReleases_` /
+  飙升榜 `Amazon_MoversShakers_` / 心愿单榜 `Amazon_MostWishedFor_`，同类目的不同榜单不会互相覆盖
 - **为什么一天一张表**：做长期分析时，你要的不是「今天谁第一」，而是「这 90 天里谁从 40 名爬到 8 名」。
   一天一页、一月一册，`items.json` 直接 diff 就能得到新上榜 / 排名跃升 / 掉榜。
 
@@ -94,7 +96,7 @@ python scripts/run.py --rank-type new-releases --node 702381011 --name "Hair Rep
 # 换站点（节点 ID 要用目标站点自己的，币种别漏）
 python scripts/run.py --market amazon.co.uk --currency GBP --node <英站节点> --name "Hair Extensions" --date 2026-11-09
 
-# 只要核心字段：图 / 排名 / 价格（卡片自动收紧成 4 行，色条不再出现）
+# 只要核心字段：图 / 排名 / 价格（卡片收紧成「图 + 排名·价格」两行，色条不再出现）
 python scripts/run.py --fields image,rank,price --date 2026-11-09 --monthly
 
 # 只出 HTML
@@ -177,7 +179,7 @@ CHANGELOG.md              更新记录
 
 ## 版本
 
-当前 **v1.3.0**，详见 [CHANGELOG.md](CHANGELOG.md)。版本号同时写在 `SKILL.md` 的 `version:`
+当前 **v1.3.2**，详见 [CHANGELOG.md](CHANGELOG.md)。版本号同时写在 `SKILL.md` 的 `version:`
 与 `scripts/run.py` 的 `__version__`，两处必须一致；运行 `python scripts/run.py --version` 可查。
 
 ## License
