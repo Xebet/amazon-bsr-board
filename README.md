@@ -49,7 +49,7 @@ data/<YYYY-MM-DD>/images/                         商品图（打包进表格，
 | 排名 | 榜单 `.zg-bdg-text` | 1–100 自然位次，前 3 名橙色描边 |
 | 价格 | 商品页 | 站点当地币种实价，带榜单卡片价兜底 |
 | 品牌 | 商品页 `#bylineInfo` | 去掉 `Visit the` / `Brand:` / `Store` 前后缀 |
-| 颜色 | 商品页 Color 字段 | **完整原文，一字不改**（见下文） |
+| 颜色 | 商品页 Color 字段 | **完整原文，一字不改**（色系统计另按 Color Code 判定，见下文） |
 | ASIN | 榜单链接 | 超链接，点击直达商品页 |
 
 ## 安装
@@ -142,6 +142,9 @@ Silver+Leopard+Black (Pack of 3)  Honey Blonde Highlight｜Side Part｜7x5 Lace 
 - **不改大小写**（`1b` 就是 `1b`）、**不截断**、**不删尺寸前缀**
 - 卖家拼写错误照留：`Nutural Black`、`Sliver to Purple`、`Gloden Blonde`
 - 验收标准：页面有该字段时，`color_raw` 与 `color_dp` 逐条 **100% 相同**
+- 卖家把规格/货号填进 Color（`200%Density 13x4 Lace Front Wig`、`CR6000`）时，**卡片文字照旧是原文**，
+  但色系占比与卡片色圆改按商品页 Style 表的 **`Color Code`**（如 `#403C3B`）判定，其次看标题里的挑染/色名——
+  假发每条都有真实颜色，不该因为卖家没写色名就被统计成「其他 / 未标注」
 - 顶部色条仍按**色系**统计（黑/金/渐变…），标签写「色系分布」，与卡片原文并存
 
 这条规则被改坏过三次（截断、改大小写、源端 `v[:40]` 截断），`references/layout-spec.md` §4 记了完整教训，改之前请先读。
@@ -179,7 +182,7 @@ CHANGELOG.md              更新记录
 
 ## 版本
 
-当前 **v1.3.2**，详见 [CHANGELOG.md](CHANGELOG.md)。版本号同时写在 `SKILL.md` 的 `version:`
+当前 **v1.4.0**，详见 [CHANGELOG.md](CHANGELOG.md)。版本号同时写在 `SKILL.md` 的 `version:`
 与 `scripts/run.py` 的 `__version__`，两处必须一致；运行 `python scripts/run.py --version` 可查。
 
 ## License

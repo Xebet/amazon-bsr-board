@@ -156,7 +156,7 @@ function render(){
       <a class="asin" href="https://www.${MARKET}/dp/${x.asin}" target="_blank" rel="noopener">${x.asin}</a>
       <div class="meta color" style="margin-top:4px;font-size:11px"
            title="${x.color_src==='dp'?'商品页 Color 属性原文':'标题中的颜色表述'}">
-        <span class="dot" style="background:${st[0]}"></span>${x.color_raw || "—"}</div>
+        <span class="dot" style="background:${x.dot_color || st[0]}"></span>${x.color_raw || "—"}</div>
     </div>`;
   }).join("");
 

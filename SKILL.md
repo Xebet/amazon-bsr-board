@@ -1,6 +1,6 @@
 ---
 name: amazon-bsr-board
-version: 1.3.2
+version: 1.4.0
 description: 亚马逊 BSR 看板（amazon-bsr-board）：抓取亚马逊任意站点、任意类目榜单（畅销榜 / 新品榜 / 飙升榜 / 心愿单榜）前 N 名（默认 100），逐条补齐品牌、当地币种售价与商品页颜色属性原文、下载商品图，产出「卡片看板」式 Excel 与可切日期的 HTML：一天一张以日期命名的工作表，一个月一个文件，跨月自动新建；卡片字段（图/排名/价格/品牌/颜色/ASIN）可增删。用于长期积累类目榜单数据，做排名跃升、新上榜、掉榜与颜色分布分析。触发词：亚马逊榜单、Best Sellers、New Releases、BSR 看板、类目排名、Top 100 抓取、竞品榜单监控、每日榜单表、按日期出表、monthly bestseller board；或用户提供类目节点 ID，要求出带商品图、ASIN 链接、品牌、价格的排名表。
 license: MIT
 agent_created: true
@@ -131,7 +131,9 @@ python <skill>/scripts/render_html.py --month YYYY-MM [--market ...] [--rank-typ
   v1.2.x 在**源提取**处还留着 `v[:40]`，把 53 字符的 `Honey Blonde Highlight｜Side Part｜7x5 Lace ｜Drawstring`
   切成 40 字符（v1.3.0 已修）。自查办法：`max(length(color_dp))` 出现恰好 40 就是又被截了。
 - 判源只认 `color_dp`（商品页原文快照），不看 `color_raw`，避免把上一轮的标题兜底值误标成 `dp`。
-- 非色名原文（规格/货号）保留在卡片上，但色系归入「其他 / 未标注」；标题里另取的颜色存 `color_title` 字段备用，不上卡片。
+- 非色名原文（规格/货号）保留在卡片上**逐字不动**；但色系与色圆不能记成「其他」——假发每条都有真实颜色，只是卖家没写在 Color 里。
+  v1.4.0 起改按 ①标题里的挑染/多色信号 ②商品页 Style 表的 **Color Code**（如 `#403C3B`）③标题色名 定色调；
+  `dot_color` 存该色号，卡片圆点直接用真实色值，不再画成灰点。标题里另取的颜色存 `color_title` 备用，不上卡片。
 - 顶部色条仍按**色系**统计（黑/金/渐变…），标签写「色系分布」，与卡片原文并存。
 - 日志口径：「商品页原文 N 条（其中本身是色名 M 条）/ 标题兜底 / 无颜色」。N 通常=100，M 才是真正的色名数，别把 N 当颜色覆盖度。
 - 长原文的版式：Excel 颜色行 `wrap_text=True` 并按显示宽度动态撑高（最多 4 行）；HTML 卡片允许换行，不用 `nowrap`+省略号。
@@ -163,7 +165,7 @@ HTML 体积很小（~0.1MB/月，图片走图床）；加 `--embed` 转 base64 �
 ## 颜色归类
 
 先判多色（ombre / highlight / two-tone / colorful / rainbow / gradient / "X to Y" / "black and white" → 渐变挑染），再按**出现位置最靠前**的单色归类（白/银 → 黑 → 金 → 棕 → 红 → 粉 → 紫 → 蓝 → 橙 → 绿）。
-归类入参顺序是 `classify_color(color_raw, title)`：**先看原文 `color_raw`，原文里没有颜色词才退回标题**（所以 `Brown Mix Blonde Highlights` 现在能正确进「渐变 / 挑染」，不再被截成 `Brown` 误判棕色）。都不中则 `其他 / 未标注`——卖家把规格文案填进 Color 的条目（`CR6000`、`200%Density 13x4 Lace Front Wig` 等）就落在这里，属预期。边界条目按商品页 `Color` 人工校准，映射写在 `scripts/run.py` 的 `COLOR_OVERRIDE`。
+归类入参顺序是 `classify_color(color_raw, title, color_code)`：**先看原文 `color_raw`；原文里没有颜色词时，先看标题的挑染信号，再用商品页 `Color Code` 定色调，最后才退回标题色名**（所以 `Brown Mix Blonde Highlights` 能正确进「渐变 / 挑染」，不再被截成 `Brown` 误判棕色）。三条都不中才是 `其他 / 未标注`——v1.4.0 起这类条目实测为 0，若出现说明 Color Code 也缺，按商品页人工校准，映射写在 `scripts/run.py` 的 `COLOR_OVERRIDE`。
 
 ## 版本与命名
 

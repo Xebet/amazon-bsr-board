@@ -31,7 +31,7 @@ import sys
 import tempfile
 import time
 
-__version__ = "1.3.2"      # 与 SKILL.md 的 version 字段保持一致，由 tools/sync_skill.py 统一维护
+__version__ = "1.4.0"      # 与 SKILL.md 的 version 字段保持一致，由 tools/sync_skill.py 统一维护
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
@@ -388,6 +388,64 @@ def parse_color_html(h):
     return ""
 
 
+COLOR_CODE_RE = re.compile(
+    r'>\s*Color\s*Code\s*<[\s\S]{0,240}?<td[^>]*>\s*(#[0-9A-Fa-f]{6}|#[0-9A-Fa-f]{3})\s*</td>', re.S)
+
+
+def parse_color_code(h):
+    """商品页 Style 表里的 Color Code（形如 #403C3B）。
+
+    Color 字段被卖家填成规格/货号（`200%Density 13x4 lace front wig`、`CR6000`）时，
+    这是唯一能反映「整体颜色观感」的字段：拿它定色调，卡片色圆与色系占比才不会落到「其他」。
+    颜色原文(color_raw)不受影响，仍逐字显示。
+    """
+    if not h:
+        return ""
+    m = COLOR_CODE_RE.search(h)
+    return m.group(1).upper() if m else ""
+
+
+def hex_to_family(code):
+    """色号 → 色系。色号不能精确表达颜色（同一色号在不同光线下观感不同），
+    这里只按 RGB→HSV 归到现有色系桶，用于统计与色圆。"""
+    m = re.fullmatch(r"#?([0-9A-Fa-f]{6}|[0-9A-Fa-f]{3})", (code or "").strip())
+    if not m:
+        return ""
+    s = m.group(1)
+    if len(s) == 3:
+        s = "".join(ch * 2 for ch in s)
+    r, g, b = int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16)
+    mx, mn = max(r, g, b), min(r, g, b)
+    v = mx / 255.0
+    sat = 0.0 if mx == 0 else (mx - mn) / mx
+    if v < 0.22:                       # 极暗：假发里这就是 1B/2 号黑，偏蓝偏棕都算黑
+        return "黑色"
+    if sat < 0.15:                     # 低饱和：只有明暗
+        return "黑色" if v < 0.38 else "白色 / 银色"   # 深灰近黑 vs 银灰/雪白
+    d = mx - mn
+    if mx == r:
+        hh = (60 * ((g - b) / d)) % 360
+    elif mx == g:
+        hh = 60 * ((b - r) / d) + 120
+    else:
+        hh = 60 * ((r - g) / d) + 240
+    if hh < 15 or hh >= 345:
+        return "棕色" if v < 0.45 else "红 / 酒红"
+    if hh < 45:
+        if v < 0.45:
+            return "棕色"
+        return "金色" if sat < 0.45 else "橙色"    # 613 沙金/米金 偏淡 → 金色
+    if hh < 70:
+        return "棕色" if v < 0.45 else "金色"
+    if hh < 160:
+        return "绿色"
+    if hh < 250:
+        return "蓝色"
+    if hh < 295:
+        return "紫色"
+    return "粉色" if v >= 0.55 else "紫色"
+
+
 def _parse_dp(h):
     brand = ""
     m = re.search(r'id="bylineInfo"[^>]*>(.*?)</(?:a|span)>', h, re.S)
@@ -405,7 +463,7 @@ def _parse_dp(h):
         m = re.search(r'"priceAmount"\s*:\s*([\d.]+)', h)
         if m:
             price = round(float(m.group(1)), 2)
-    return brand, price, parse_color_html(h)
+    return brand, price, parse_color_html(h), parse_color_code(h)
 
 
 DP_JS = r"""() => {
@@ -430,7 +488,16 @@ DP_JS = r"""() => {
     if (li) color = clean(li.innerText);
   }
   color = color.replace(/^Color\s*[:：]\s*/i, '').trim();
-  return {brand: b, price: q('#corePrice_feature_div') || q('#corePriceDisplay_desktop_feature_div'), color: color};
+  // Style 表里的 Color Code（#403C3B）：Color 被填成规格/货号时靠它定色调
+  let code = '';
+  for (const tr of document.querySelectorAll('table.a-keyvalue tr, table.a-normal.a-spacing-micro tr')) {
+    const th = tr.querySelector('th'); if (!th) continue;
+    if (/^\s*color\s*code\s*$/i.test(clean(th.innerText))) {
+      const td = tr.querySelector('td');
+      if (td) { const mm = clean(td.innerText).match(/#[0-9A-Fa-f]{6}|#[0-9A-Fa-f]{3}/); if (mm) { code = mm[0].toUpperCase(); break; } }
+    }
+  }
+  return {brand: b, price: q('#corePrice_feature_div') || q('#corePriceDisplay_desktop_feature_div'), color: color, code: code};
 }"""
 
 
@@ -456,7 +523,8 @@ async def _patch_by_browser(targets, market="amazon.com"):
                 m = re.search(r"\$([\d,]+\.\d\d)", r.get("price") or "")
                 fixed[asin] = {"brand": r.get("brand") or "",
                                "price": round(float(m.group(1).replace(",", "")), 2) if m else "",
-                               "color": _clean_color(r.get("color") or "")}
+                               "color": _clean_color(r.get("color") or ""),
+                               "code": (r.get("code") or "").strip().upper()}
             except Exception as e:
                 log(f"    ! {asin} 浏览器补抓失败：{e}")
         await br.close()
@@ -525,7 +593,7 @@ def stage_enrich(items, workdir, date_s, market="amazon.com", workers=5):
             except Exception:
                 asin, h, ok = it["asin"], "", False
             if ok:
-                it["brand"], it["price_usd"], it["color_raw"] = _parse_dp(h)
+                it["brand"], it["price_usd"], it["color_raw"], it["color_code"] = _parse_dp(h)
                 it["color_dp"] = it["color_raw"]          # 商品页 Color 原文（源头，供重算时判源）
                 it["price_src"] = "dp" if it["price_usd"] else ""
                 it["color_src"] = "dp" if it.get("color_raw") else ""
@@ -548,6 +616,8 @@ def stage_enrich(items, workdir, date_s, market="amazon.com", workers=5):
                 if not it.get("color_raw") and r.get("color"):
                     it["color_raw"], it["color_src"] = r["color"], "dp"
                     it["color_dp"] = r["color"]
+                if not it.get("color_code") and r.get("code"):
+                    it["color_code"] = r["code"]
 
     # 兜底：商品页因「无法配送至当前地区」不显示价格 → 用榜单卡片价
     n = 0
@@ -622,7 +692,7 @@ MULTI_RE = (r"ombre|ombré|balayage|highlight|two[ -]?tone|mixed colou?r|multi[ 
             r"|\bto\s+(?:black|blonde|brown|purple|blue|pink|red|silver|grey|gray|white|orange|green)\b")
 FAMILIES = [
     ("白色 / 银色", r"\bwhite\b|snow white|silver|\bgrey\b|\bgray\b|icy"),
-    ("黑色",        r"\bblack\b|\b1b\b|off ?black|jet black|natural black|natural colou?r"),
+    ("黑色",        r"\bblack\b|\b1b\b|off ?black|jet ?black|natural black|natural colou?r"),
     ("金色",        r"\bblonde\b|\bblond\b|\bgolden\b|\b613\b|platinum|honey|sandy"),
     ("棕色",        r"\bbrown\b|chocolate|chestnut|caramel|champagne"),
     ("红 / 酒红",   r"\bred\b|auburn|ginger|copper|burgundy|wine red|cherry"),
@@ -709,25 +779,39 @@ def is_color_like(v):
     # 卖家常用整串色名：Natural / Original / Skunk Stripe（黑金挑染）。整串匹配，不误命中规格文案。
     if re.fullmatch(r"natural|original|skunk\s+stripe", low):
         return True
+    # 1 Jetblack（Sensationnel 官方色号，Jet Black 连写）：词表只有带空格的 jet black
+    if re.search(r"\bjet\s?black\b", low):
+        return True
     return False
 
 
-def classify_color(raw, title=""):
-    """把原始颜色描述归入色系，仅用于统计口径——表格里显示的是 raw 原文"""
-    for src in (raw, title):
-        if not src:
-            continue
-        t = html.unescape(src).lower()
-        if re.search(MULTI_RE, t):
+def classify_color(raw, title="", code=""):
+    """把原始颜色描述归入色系，仅用于统计口径——表格里显示的是 raw 原文
+
+    2026-11-10 起：Color 被卖家填成规格/货号时，不再落到「其他 / 未标注」，
+    而是依次用 ①标题里的挑染/多色信号 ②商品页 Color Code ③标题色名 定色调。
+    假发任何一条都有真实颜色，缺的只是页面没写色名，不能记成「其他」。
+    """
+    src = html.unescape(raw or "").lower()
+    if src:
+        if re.search(MULTI_RE, src):
             return "渐变 / 挑染"
-        hits = []
-        for name, pat in FAMILIES:
-            m = re.search(pat, t)
-            if m:
-                hits.append((m.start(), name))
+        hits = [(m.start(), name) for name, pat in FAMILIES if (m := re.search(pat, src))]
         if hits:
-            hits.sort()
-            return hits[0][1]
+            return sorted(hits)[0][1]
+    # ---- raw 不是色名 ----
+    t = html.unescape(title or "").lower()
+    # 挑染/渐变的信号只在标题里有（单一色号表达不了「一顶里两种色」）
+    if t and re.search(MULTI_RE, t):
+        return "渐变 / 挑染"
+    if code:
+        fam = hex_to_family(code)
+        if fam:
+            return fam
+    if t:
+        hits = [(m.start(), name) for name, pat in FAMILIES if (m := re.search(pat, t))]
+        if hits:
+            return sorted(hits)[0][1]
     return "其他 / 未标注"
 
 
@@ -752,12 +836,21 @@ def stage_color(items):
         it["color_raw"] = raw
         # 标题里能取到的颜色短语，仅作对照字段留存，不参与看板显示
         it["color_title"] = title_color_phrase(it.get("title")) or ""
-        it["color"] = classify_color(raw, it.get("title"))
+        it["color"] = classify_color(raw, it.get("title"), it.get("color_code") or "")
+        # 色圆：Color 原文不是色名时，用商品页 Color Code 的真实色值，
+        # 避免一顶黑发因卖家把 Color 填成规格而显示成「其他」的灰点
+        cc = (it.get("color_code") or "").strip()
+        is_multi = bool(re.search(MULTI_RE, html.unescape(raw or "").lower())
+                        or re.search(MULTI_RE, html.unescape(it.get("title") or "").lower()))
+        use_code = cc and not is_color_like(raw) and bool(hex_to_family(cc)) and not is_multi
+        it["dot_color"] = cc if use_code else ""
     n_dp = sum(1 for x in items if x.get("color_src") == "dp")
     n_ti = sum(1 for x in items if x.get("color_src") == "title")
     n_no = sum(1 for x in items if x.get("color_src") == "none")
     n_name = sum(1 for x in items if x.get("color_src") == "dp" and is_color_like(x.get("color_raw")))
+    n_code = sum(1 for x in items if x.get("dot_color"))
     log(f"  商品页原文 {n_dp} 条（其中本身是色名 {n_name} 条）/ 标题兜底 {n_ti} 条 / 无颜色 {n_no} 条")
+    log(f"  非色名原文改用 Color Code 定色调 {n_code} 条")
     cnt = collections.Counter(it["color"] for it in items)
     log("  色系：" + "  ".join(f"{k}{v}" for k, v in cnt.most_common()))
     return items
@@ -987,6 +1080,10 @@ def _fill_sheet(ws, items, date_s, name, node_id, crawled_at, thumb_dir):
             # 颜色：显示商品页 Color 属性的原文（如 "Light Hot Pink" / "Off Black 1B"）
             raw = (d.get("color_raw") or "").strip() or "—"
             fill_c, _ = STYLE_COLOR.get(d.get("color"), STYLE_COLOR["其他 / 未标注"])
+            # 非色名原文：圆点用商品页 Color Code 的真实色值（见 stage_color.dot_color）
+            _dot = (d.get("dot_color") or "").strip()
+            if re.fullmatch(r"#[0-9A-Fa-f]{6}", _dot):
+                fill_c = "FF" + _dot[1:].upper()
             try:
                 from openpyxl.cell.rich_text import CellRichText, TextBlock
                 from openpyxl.cell.text import InlineFont
@@ -1035,7 +1132,8 @@ def _fill_sheet(ws, items, date_s, name, node_id, crawled_at, thumb_dir):
     notes = ["说明｜每张卡片 = 一个商品：" + " + ".join(FIELD_CN[f] for f in fields) + "。"]
     if "color" in fields:
         notes.append("说明｜颜色取亚马逊商品页 Color 属性的原文（如 Light Hot Pink、Off Black 1B），未经改写；"
-                     "个别商品无该属性时取标题中的颜色表述；顶部色条是同一批原文归入色系后的统计。")
+                     "个别商品该属性被填成规格/货号时，显示仍用原文，色圆与色系统计则取商品页 Color Code 的真实色调"
+                     "（其次参考标题）；顶部色条是同一批原文归入色系后的统计。")
     if "rank" in fields or "price" in fields:
         notes.append(f"说明｜排名为类目{rank_en}的自然位次，非搜索排名；价格取商品页实时售价，"
                      f"个别商品因配送区域限制不显示价格时取榜单卡片价。")

@@ -106,9 +106,14 @@ Silver+Leopard+Black (Pack of 3)    200%Density 13x4 Lace Front Wig
 - `color_src`：`dp`（页面有该字段）/ `title`（标题兜底）/ `none`（都没有）
 - **验收标准：页面有 Color 字段的条目，`color_raw` 必须与 `color_dp` 逐条 100% 相同**
 
-**色系归组**（`classify_color`，只用于顶部色条，不影响卡片显示）
+**色系归组**（`classify_color(color_raw, title, color_code)`，只用于顶部色条与卡片色圆，不影响卡片文字）
 先判「多色」归 `渐变 / 挑染`（`ombre / balayage / highlight / two-tone / mixed color / colorful / rainbow / black and white / X to Y`），
-再按出现位置最靠前归入：白/银 → 黑（含 `1b`、`natural color`）→ 金 → 棕 → 红/酒红 → 粉 → 紫 → 蓝 → 橙 → 绿，都不中则 `其他 / 未标注`。
+再按出现位置最靠前归入：白/银 → 黑（含 `1b`、`natural color`、`jetblack`）→ 金 → 棕 → 红/酒红 → 粉 → 紫 → 蓝 → 橙 → 绿。
+
+原文里没有颜色词时（`CR6000`、`200%Density 13x4 Lace Front Wig` 这类卖家把规格填进 Color 的条目），
+v1.4.0 起按 ①标题里的挑染/多色信号 ②商品页 Style 表 `Color Code`（RGB→HSV 归色系）③标题色名 依次定色调，
+并写 `dot_color`（原始色号如 `#403C3B`）供卡片色圆直接取用。假发每条都有真实颜色，不应记成 `其他 / 未标注`；
+常态应为 0 条，若出现说明该商品连 Color Code 都没有，需按商品页人工校准。
 占比取整后若合计 ≠ 100，差额补给数量最多的那一类。
 
 **为什么这条规则写得这么死**：它被改坏过两次。

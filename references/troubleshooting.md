@@ -1,7 +1,7 @@
 # 执行手册 SOP · 从零到交付
 
 > 给「照着做的人 / Agent」看。每一步都写了为什么，以及踩过的坑。
-> 只想一键跑：`python pipeline/run.py --date 2026-10-21`，本文用于理解与排错。
+> 只想一键跑：`python <skill>/scripts/run.py --date 2026-10-21`，本文用于理解与排错。
 
 ## 0. 环境准备（一次性）
 
@@ -71,7 +71,7 @@ f"https://m.media-amazon.com/images/I/{ID}._AC_SL400_.jpg"   # 失败退 SL500 �
 
 规则见 `references/layout-spec.md §4`。要点：
 
-- **卡片显示商品页 Color 字段的完整字符串**：不改大小写、不截断、不摘要。看起来不像颜色的值（`200%Density 13x4 Lace Front Wig`、`CR6000`、`Silver+Leopard+Black (Pack of 3)`）也照原样上卡片，色系统计归「其他 / 未标注」
+- **卡片显示商品页 Color 字段的完整字符串**：不改大小写、不截断、不摘要。看起来不像颜色的值（`200%Density 13x4 Lace Front Wig`、`CR6000`、`Silver+Leopard+Black (Pack of 3)`）也照原样上卡片；但**色系占比与卡片色圆按真实产品颜色统计**（v1.4.0 起）——先看标题的挑染信号，再用商品页 Style 表 `Color Code`（如 `#403C3B`）定色调，都不中才回标题色名，最终不为「其他」
 - 取数三处依次尝试：`#variation_color_name .selection` → 详情表 `Color` 行 → `#detailBullets` 的 `Color:` 项
 - 批量补历史数据用 `<skill>/scripts/enrich_color.py`（浏览器通道，4 并发，125 个 ASIN 约 2 分钟，结果缓存在 `data/_color_attrs.json`，重跑不重复抓）
 - 验收看**逐条一致率**：页面有 Color 字段的条目，`color_raw` 必须与 `color_dp` 100% 相同。日志里 `商品页原文 N 条（其中本身是色名 M 条）/ 标题兜底 X 条 / 无颜色 Y 条`——N 是「页面有该字段」，M 才是「看起来是色名」，别把 N 当质量指标
@@ -80,7 +80,7 @@ f"https://m.media-amazon.com/images/I/{ID}._AC_SL400_.jpg"   # 失败退 SL500 �
 
 ## 6. 出表
 
-版式参数照抄 `references/layout-spec.md §3` 或直接读 `pipeline/run.py` 顶部的 `LAYOUT`。
+版式参数照抄 `references/layout-spec.md §3` 或直接读 `<skill>/scripts/run.py` 顶部的 `LAYOUT`。
 
 两个必须记住的细节：
 
@@ -128,25 +128,25 @@ f"https://m.media-amazon.com/images/I/{ID}._AC_SL400_.jpg"   # 失败退 SL500 �
 
 ```bash
 # 每天跑一次：汇总进「当月一个文件」，每天一张表（推荐）
-python pipeline/run.py --date 2026-10-22 --monthly
+python <skill>/scripts/run.py --date 2026-10-22 --monthly
 
 # 单日单独出一个文件
-python pipeline/run.py --date 2026-10-22
+python <skill>/scripts/run.py --date 2026-10-22
 
 # 改了版式只想重排，不重抓
-python pipeline/run.py --date 2026-10-22 --skip-fetch
+python <skill>/scripts/run.py --date 2026-10-22 --skip-fetch
 
 # 换类目（节点 ID 换了就够，URL 里的 beauty 段不用改）
-python pipeline/run.py --node <新节点> --name "<新类目名>" --date 2026-10-22
+python <skill>/scripts/run.py --node <新节点> --name "<新类目名>" --date 2026-10-22
 
 # 换榜单类型：新品榜 / 飙升榜 / 心愿单榜（同一套卡片版式，只换 URL 与文案）
-python pipeline/run.py --rank-type new-releases --node 702381011 --name "Hair Replacement Wigs" --date 2026-10-22
+python <skill>/scripts/run.py --rank-type new-releases --node 702381011 --name "Hair Replacement Wigs" --date 2026-10-22
 
 # 换站点（节点 ID 必须用目标站点自己的）
-python pipeline/run.py --market amazon.co.uk --currency GBP --node <英站节点> --name "Hair Extensions" --date 2026-10-22
+python <skill>/scripts/run.py --market amazon.co.uk --currency GBP --node <英站节点> --name "Hair Extensions" --date 2026-10-22
 
 # 只要核心字段：图 / 排名 / 价格（卡片收紧，色条自动不出现）
-python pipeline/run.py --fields image,rank,price --date 2026-10-22 --monthly
+python <skill>/scripts/run.py --fields image,rank,price --date 2026-10-22 --monthly
 ```
 
 `--fields` / `--rank-type` / `--market` 只影响「怎么抓、怎么排」，不改 `data/` 里的数据结构：

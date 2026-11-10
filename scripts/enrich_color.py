@@ -49,7 +49,7 @@ async def _worker(queue, results, browser, market, pid):
                     else:
                         await page.wait_for_timeout(2500)
                     continue
-                results[asin] = {"color": color, "ok": True}
+                results[asin] = {"color": color, "code": (r.get("code") or "").strip().upper(), "ok": True}
                 break
             except Exception as e:
                 if attempt == 2:
@@ -158,6 +158,9 @@ def main():
             if c.get("color") and R.is_color_like(c["color"]):
                 it["color_raw"], it["color_src"] = c["color"], "dp"
                 it["color_dp"] = c["color"]
+            # Color Code：卖家把 Color 填成规格/货号时，用它定色圆与色系
+            if c.get("code"):
+                it["color_code"] = c["code"]
             # 抓不到的交给 stage_color 按标题兜底
         items = R.stage_color(items)
         json.dump(items, open(os.path.join(data_dir, d, "items.json"), "w", encoding="utf-8"),

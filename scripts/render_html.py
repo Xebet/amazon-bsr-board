@@ -52,7 +52,7 @@ def _data_url(path):
 def _prep_item(it, embed):
     """统一成精简结构：图片走图床并带多级回退链，或转 base64"""
     out = {k: it.get(k) for k in ("rank", "asin", "brand", "price_usd",
-                                 "color", "color_raw", "color_src")}
+                                 "color", "color_raw", "color_src", "dot_color")}
     if embed:
         out["img"] = _data_url(it.get("local_img")) or it.get("img") or ""
         out["chain"] = []

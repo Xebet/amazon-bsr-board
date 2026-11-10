@@ -33,3 +33,14 @@
 
 - 文档措辞修正，无功能变更：公开文档统一去掉只有维护者看得懂的表述（本机 / 定时任务 / 项目内等）；`ExportAsFixedFormat` 的说明改为「按工作表导 PDF 可用、整本工作簿导易崩」；SKILL.md 的版本小节重写为对外可读的「版本与命名」
 - README 事实性修正：版本号由 1.3.0 更新到当前版本（并改为随同步脚本自动更新）；商品图目录由 `output/.../images/` 更正为 `data/<日期>/images/`；「只留图/排名/价格」的卡片行数说明纠正（实际是「图 + 排名·价格」两行）；补上文件名前缀随榜单类型变化的说明
+
+## 1.4.0 — 2026-11-10
+
+- **口径修正：非色名原文不再记成「其他 / 未标注」**。卖家把 Color 填成规格/货号（`200%Density 13x4 Lace Front Wig`、`CR6000`、`C08#BH Color`、`wigs human hair`）时，卡片文字仍逐字显示原文；但色系占比与卡片色圆改按真实产品颜色判定——假发每一条都有颜色，缺的只是页面没写色名
+- 新增 `parse_color_code()`：抓商品页 Style 表 `Color Code`（如 `#403C3B`），curl 与 Playwright 两条抓取路径都支持，落 `items.json` 的 `color_code`
+- 新增 `hex_to_family()`：RGB→HSV 归色系（极暗→黑；低饱和按明度分黑/银灰；色相分段归金/棕/红/粉/紫/蓝/绿/橙，613 类沙金归金）
+- `classify_color()` 入参改为 `(raw, title, code)`，顺序：原文色名 → 标题挑染信号 → Color Code 色调 → 标题色名；挑染（ombre/highlight/two-tone）仍优先，因为单一色号表达不了双色
+- 新增 `dot_color` 字段：非色名原文的圆点直接用 Color Code 真实色值（Excel 富文本 ARGB、HTML `background`），不再画灰点；HTML 模板由 `st[0]` 改为 `x.dot_color || st[0]`
+- 词表补 `jetblack`（Sensationnel 官方色号 `1 Jetblack`）/ `jet ?black`，此前被误判为非颜色
+- 配套一次性回填脚本（不进技能包，只用于给既有 `data/` 补色号）：只给缺 `color_code` 的非色名条目补色号并重算，带 `color_raw` 不变硬校验（变了就中止写入）
+- 实测 11-01～11-10：59 条非色名条目全部归入真实色系，「其他 / 未标注」由每日 1～4 条降为 **0 条**，`color_raw` 零改动
