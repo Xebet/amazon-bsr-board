@@ -1,7 +1,20 @@
 ---
 name: amazon-bsr-board
-version: 1.4.2
+display_name: 亚马逊BSR看板
+display_name_en: Amazon BSR Board
 description: 亚马逊 BSR 看板（amazon-bsr-board）：抓取亚马逊任意站点、任意类目榜单（畅销榜 / 新品榜 / 飙升榜 / 心愿单榜）前 N 名（默认 100），逐条补齐品牌、当地币种售价与商品页颜色属性原文、下载商品图，产出「卡片看板」式 Excel 与可切日期的 HTML：一天一张以日期命名的工作表，一个月一个文件，跨月自动新建；卡片字段（图/排名/价格/品牌/颜色/ASIN）可增删。用于长期积累类目榜单数据，做排名跃升、新上榜、掉榜与颜色分布分析。触发词：亚马逊榜单、Best Sellers、New Releases、BSR 看板、类目排名、Top 100 抓取、竞品榜单监控、每日榜单表、按日期出表、monthly bestseller board；或用户提供类目节点 ID，要求出带商品图、ASIN 链接、品牌、价格的排名表。
+description_zh: 抓取亚马逊任意站点、任意类目的榜单前 N 名，逐条补齐品牌、当地币种售价、商品页颜色原文与商品图，产出「一天一页、一月一册」的卡片看板 Excel 与可切日期的 HTML，用于长期积累排名与颜色数据。
+description_en: Scrape any Amazon marketplace category ranking (Best Sellers / New Releases / Movers & Shakers / Most Wished For), enrich each item with brand, local-currency price, the raw color attribute and the product image, then export a card-board Excel (one sheet per day, one workbook per month) plus a date-switchable HTML board for long-term rank and color tracking.
+examples_zh:
+  - 抓取亚马逊美国站 Hair Replacement Wigs 前 100 名，出今天的看板表
+  - 把本月每天的榜单汇总成一个 Excel，每天一张工作表
+  - 换成新品榜，只看前 50 名，字段只要图、排名、价格
+examples_en:
+  - Scrape the top 100 of Amazon US Hair Replacement Wigs and build today's board
+  - Merge this month's daily rankings into one workbook with one sheet per day
+  - Switch to New Releases, top 50, keeping only image, rank and price
+version: 1.4.3
+author: Xebet
 license: MIT
 agent_created: true
 metadata:
@@ -196,7 +209,8 @@ HTML 体积很小（~0.1MB/月，图片走图床）；加 `--embed` 转 base64 �
 
 - `scripts/run.py`：主流水线（抓取 → 补品牌价格 → 下图 → 颜色 → 出表，含校验断言）
 - `scripts/render_html.py`：把 `data/<日期>/items.json` 渲染成单文件 HTML 看板（`--embed` 可离线）
-- `assets/board.html`：HTML 看板模板，`__DATA__` 处注入 JSON
+- `templates/board.html`：HTML 看板模板，`__DATA__` 处注入 JSON
 - `references/layout-spec.md`：版式精确参数、字段定义、颜色规则、验收标准
 - `references/troubleshooting.md`：执行手册与踩坑表
 - `references/acceptance.md`：交付前检查清单
+- `references/changelog.md`：版本变更记录

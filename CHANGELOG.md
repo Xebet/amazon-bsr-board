@@ -61,3 +61,9 @@
 - `stage_build_monthly()` 与单日 `stage_build()` 两处保存均改走 `_save_wb()`，校验与日志改用实际落盘路径
 - **图片整批失败改为立即停（2026-11-14 追加）**：100 张图 3 秒内全部下载失败时（图片 CDN 瞬时拒绝 / 限流），`stage_images` 直接 `SystemExit(3)` 并提示「等 1~2 分钟重跑，榜单与商品页已落盘不会重复抓」；此前会继续建完整月表，最后在验收处才抛「图片数 0 != 100」，既看不出原因也浪费整轮时间
 - **部分缺图先补一轮**：缺图非全量时等 3 秒重下一次，仍缺则显式警告「验收按卡片数核对图片数，缺图会导致出表校验失败」
+
+## 1.4.3 — 2026-11-14
+
+- 目录结构改为平台规范：assets/ 更名为 templates/；CHANGELOG 进包时改名 references/changelog.md，包根只留 SKILL.md；补开放平台 frontmatter 必填字段（display_name / display_name_en / description_zh / description_en / author）与 examples_zh / examples_en
+- Git 仓库搬到 .repo/，安装目录只保留载荷（8.2 MB -> 172 KB），分享整个目录不再超 3 MB 限制
+- sync_skill.py 改为双目标同步（项目->仓库->安装），打包时校验目录层级、白名单目录与 zip/解压体积；CHANGELOG 以项目为唯一源，仓库根与包内副本均从它派生

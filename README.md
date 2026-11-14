@@ -172,17 +172,20 @@ SKILL.md                  技能说明（触发条件、可配置项、执行命
 scripts/run.py            主流水线：抓取 → 补品牌/价格/颜色 → 下图 → 出表
 scripts/render_html.py    同一份数据出单文件 HTML 看板
 scripts/enrich_color.py   给历史数据补商品页颜色原文（浏览器并发，带缓存）
-assets/board.html         HTML 模板
+templates/board.html      HTML 模板
 references/layout-spec.md      版式与颜色口径（精确参数）
 references/troubleshooting.md  踩坑与排错
 references/acceptance.md       交付验收清单
-docs/screenshots/         产物截图
-CHANGELOG.md              更新记录
+references/changelog.md        更新记录（本文件在仓库里叫 CHANGELOG.md，打包时改名放进 references/）
+docs/screenshots/         产物截图（只随仓库分发，不进技能包）
 ```
+
+安装目录与技能包只包含 `SKILL.md` 加 `scripts/`、`references/`、`templates/` 三个子目录，
+这是 WorkBuddy 开放平台的结构要求；`docs/`、`README.md`、`LICENSE`、`.git` 都留在仓库里，不进包。
 
 ## 版本
 
-当前 **v1.4.2**，详见 [CHANGELOG.md](CHANGELOG.md)。版本号同时写在 `SKILL.md` 的 `version:`
+当前 **v1.4.3**，详见 [CHANGELOG.md](CHANGELOG.md)。版本号同时写在 `SKILL.md` 的 `version:`
 与 `scripts/run.py` 的 `__version__`，两处必须一致；运行 `python scripts/run.py --version` 可查。
 
 ## License
