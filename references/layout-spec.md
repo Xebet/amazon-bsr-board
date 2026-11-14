@@ -31,7 +31,7 @@
 | 图片 img | 榜单卡片 `img.src` | 换成 `._AC_SL400_.jpg` 取清晰大图 |
 | 品牌 brand | 商品页 `#bylineInfo` | 去掉 `Visit the` / `Brand:` / `Store` 前后缀 |
 | 价格 price | 商品页 `a-price-whole` + `a-price-fraction` | 美元浮点，兜底见 §5 |
-| 颜色原文 color_dp | 商品页 Color 字段（变体选择器 → 详情表 → detail bullets） | 亚马逊原始字符串，**一个字符都不改**；仅存证，见 §4 |
+| 颜色原文 color_dp | 商品页 Color 字段（下拉选项按 ASIN 取单值 → 变体选择器 → 详情表 → detail bullets） | 亚马逊原始字符串，**一个字符都不改**；仅存证，见 §4 |
 | 显示颜色 color_raw | 由 color_dp 无损清洗得到 | **卡片上显示的就是这个**，与 color_dp 逐条一致（100%）；取不到时用标题原样短语 |
 | 色系 color | 由 color_raw 归组（黑/金/渐变…） | 仅用于顶部色条统计，规则见 §4 |
 
@@ -90,11 +90,17 @@ Small size light blue               Natural Color 1b#
 Silver+Leopard+Black (Pack of 3)    200%Density 13x4 Lace Front Wig
 ```
 
-**取数顺序**（`parse_color_html` / `DP_JS`）
-1. 变体选择器 `#variation_color_name .selection`
-2. 商品详情表 `Color` 行（`#productDetails_techSpec_section_1` / `detailBullets`）
-3. 都没有 → 标题里的颜色短语（原样截取，保留原大小写）
-4. 都没有 → `—`
+**取数顺序**（`parse_color_select` / `parse_color_html` / `DP_JS`）
+1. **下拉式 `<select>` 里本 ASIN 那一个 option**（`#variation_color_name select`、`select#native_dropdown_selected_color_name`、`select[name="dropdown_selected_color_name"]`）
+2. 变体选择器 `#variation_color_name .selection`（swatch 式）
+3. 商品详情表 `Color` 行（`#productDetails_techSpec_section_1` / `detailBullets`）
+4. 都没有 → 标题里的颜色短语（原样截取，保留原大小写）
+5. 都没有 → `—`
+
+**下拉式必须按 ASIN 取单值，绝不回落容器整段文本**：页面是 `variation-dropdown` 时 `#variation_color_name` 内没有 `.selection`，
+早先的兜底 `vc.innerText` 会把下拉里全部变体名连成一条（实测 7 条、最长 1230 字符），既不是该 ASIN 的颜色，
+也会把卡片撑到 985px、把色系统计带偏。option 的 `value` 形如 `17,B0B71B59SZ`，用结尾的 ASIN 精确锚定；
+锚不上退 `selected`；再不行宁可留空走详情表，**不允许回落到 `#variation_color_name` 的整段文本**。
 
 **清洗**（`normalize_color` → `_clean_color_text`）只做无损动作：HTML 反转义、去标签、合并连续空白、去掉 `Color:` / `Colour:` 这个**字段名**前缀、去首尾标点。
 **不做**：改大小写（`1b` 不写成 `1B`、`OFF BLACK` 不写成 `Off Black`）、按长度截取、删 `Small size` 前缀、删尾部 `24inch`。

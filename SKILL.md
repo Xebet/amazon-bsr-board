@@ -1,6 +1,6 @@
 ---
 name: amazon-bsr-board
-version: 1.4.0
+version: 1.4.2
 description: 亚马逊 BSR 看板（amazon-bsr-board）：抓取亚马逊任意站点、任意类目榜单（畅销榜 / 新品榜 / 飙升榜 / 心愿单榜）前 N 名（默认 100），逐条补齐品牌、当地币种售价与商品页颜色属性原文、下载商品图，产出「卡片看板」式 Excel 与可切日期的 HTML：一天一张以日期命名的工作表，一个月一个文件，跨月自动新建；卡片字段（图/排名/价格/品牌/颜色/ASIN）可增删。用于长期积累类目榜单数据，做排名跃升、新上榜、掉榜与颜色分布分析。触发词：亚马逊榜单、Best Sellers、New Releases、BSR 看板、类目排名、Top 100 抓取、竞品榜单监控、每日榜单表、按日期出表、monthly bestseller board；或用户提供类目节点 ID，要求出带商品图、ASIN 链接、品牌、价格的排名表。
 license: MIT
 agent_created: true
@@ -116,10 +116,16 @@ python <skill>/scripts/render_html.py --month YYYY-MM [--market ...] [--rank-typ
 
 | 优先级 | 来源 | 示例 |
 |---|---|---|
-| 1 | 变体选择器 `#variation_color_name .selection` | `Light Hot Pink` |
-| 2 | 商品详情表 `Color` 行 / detailBullets | `Off Black 1B` |
-| 3 | 页面**没有** Color 字段时，取标题里的颜色短语原文 | `Mixed Blonde` |
-| 4 | 都没有 | `—` |
+| 1 | **下拉式 `<select>` 里本 ASIN 那一个 option** | `Ombre Blonde` |
+| 2 | 变体选择器 `#variation_color_name .selection`（swatch 式） | `Light Hot Pink` |
+| 3 | 商品详情表 `Color` 行 / detailBullets | `Off Black 1B` |
+| 4 | 页面**没有** Color 字段时，取标题里的颜色短语原文 | `Mixed Blonde` |
+| 5 | 都没有 | `—` |
+
+- **下拉式颜色维度必须按 ASIN 取单值**：页面是 `variation-dropdown` 时 `#variation_color_name` 内没有 `.selection`，
+  兜底绝不能取容器整段文本——那样会把下拉里几十个变体名连成一条（实测 7 条、最长 1230 字符），
+  既不是该 ASIN 的颜色，也会把卡片撑到 985px、把色系统计带偏。option 的 `value` 形如 `17,B0B71B59SZ`，
+  用结尾的 ASIN 精确锚定；锚不上退 `selected`；再不行宁可留空走详情表。
 
 - **只要商品页有 Color 字段，就原样完整显示**，即使它写的是规格文案（`200%Density 13x4 Lace Front Wig`、`C08#BH Color`、`CR6000`、`bob-1`、`P4/30`、`Highlight`）——这是「要能跟商品页对得上」的硬要求，不得为了好看而改写或丢弃。
 - 原文里的拼写错误照留（`Nutural Black`、`Nature color`、`Gloden Blonde`），不要"顺手纠正"。

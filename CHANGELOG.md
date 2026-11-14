@@ -44,3 +44,18 @@
 - 词表补 `jetblack`（Sensationnel 官方色号 `1 Jetblack`）/ `jet ?black`，此前被误判为非颜色
 - 配套一次性回填脚本（不进技能包，只用于给既有 `data/` 补色号）：只给缺 `color_code` 的非色名条目补色号并重算，带 `color_raw` 不变硬校验（变了就中止写入）
 - 实测 11-01～11-10：59 条非色名条目全部归入真实色系，「其他 / 未标注」由每日 1～4 条降为 **0 条**，`color_raw` 零改动
+
+## 1.4.1 — 2026-11-11
+
+- **严重缺陷修复：下拉式 Color 变体会把全部选项拼成一条颜色**。当商品页颜色维度是 `variation-dropdown`（`<select>` 原生下拉）时，`#variation_color_name` 内部没有 `.selection` 元素，旧版 Playwright 路径回落到 `vc.innerText`，把下拉里所有变体的名字连成一条——实测 2026-11-11 有 7 条被污染（#42 达 1230 字符、#17 达 1155 字符），既不是该 ASIN 的颜色，也把卡片撑到 985px、把色系统计整体带偏（「渐变 / 挑染」虚高 4 席、黑色低估 3 席）
+- 新增 `parse_color_select(h, asin)`：解析 `<select id="native_dropdown_selected_color_name">`，option 的 `value` 形如 `17,B0B71B59SZ`，据此**精确锚定当前 ASIN 的那一个选项**；取不到 ASIN 时才退到 `selected` 属性；两者都无则返回空，交给后续详情表兜底——**绝不回落到整段容器文本**
+- `parse_color_html()` 增加 `asin` 参数，下拉选项优先于原有正则；`_parse_dp()` 同步透传 ASIN
+- `DP_JS` 增加 `asin` 入参并重写颜色取值：①按 ASIN 匹配的 option → ②`selected` option → ③swatch 的 `.selection/.swatchSelect` → ④详情表 → ⑤detail bullets；`page.evaluate(DP_JS, asin)` 两条调用路径（`run.py` 补抓、`enrich_color.py`）同步修改
+- 顺带修：`DP_JS` 返回值补上 `title`，`enrich_color.py` 原先读 `r.get("title")` 永远为空，导致「页面被拦」判定只看颜色
+- 实测 2026-11-11：7 条全部还原为单值（#22 `Ombre Blonde`、#42 `Brown Highlight`、#58 `Black`、#91 `Blonde`、#17 `Pre-Style Roll Curl｜Black`、#30 `Brown Ombre Blonde`、#40 `Blunt Cut Yaki Bob | Natural Black`），HTML 卡片高度由 985px 回到 243px；色系由「黑色 52 / 渐变挑染 13 / 金色 7」修正为「黑色 55 / 渐变挑染 9 / 金色 8」；历史 11-01～11-10 十天零改动
+
+## 1.4.2 — 2026-11-11
+
+- **出表增加占用降级**：新增 `_save_wb()`，`wb.save()` 命中 `PermissionError`（目标 xlsx 被 Excel / WPS / 预览面板以共享只读句柄打开）时，改存同目录 `<名>_fixed.xlsx` 并在日志显式告警，不再让已经抓完、补完、建成 10 MB 的工作簿因为最后一步写盘而整体失败
+- 背景：v1.4.1 修正数据后重建，正式文件被占用，`wb.save` 直接抛 `PermissionError`、`os.replace`/`copyfile`/`Copy-Item -Force` 全部失败（只读可打开、写入被拒），修正版只能暂存 `_fixed`
+- `stage_build_monthly()` 与单日 `stage_build()` 两处保存均改走 `_save_wb()`，校验与日志改用实际落盘路径

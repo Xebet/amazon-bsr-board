@@ -40,7 +40,7 @@ async def _worker(queue, results, browser, market, pid):
                 await page.goto(f"https://www.{market}/dp/{asin}",
                                 wait_until="domcontentloaded", timeout=45000)
                 await page.wait_for_timeout(1200 if attempt == 1 else 2500)
-                r = await page.evaluate(R.DP_JS)
+                r = await page.evaluate(R.DP_JS, asin)
                 color = R._clean_color(r.get("color") or "")
                 title = (r.get("title") or "").strip()
                 if not title and not color:          # 被拦 / 页面没渲染出来

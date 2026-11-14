@@ -72,7 +72,8 @@ f"https://m.media-amazon.com/images/I/{ID}._AC_SL400_.jpg"   # 失败退 SL500 �
 规则见 `references/layout-spec.md §4`。要点：
 
 - **卡片显示商品页 Color 字段的完整字符串**：不改大小写、不截断、不摘要。看起来不像颜色的值（`200%Density 13x4 Lace Front Wig`、`CR6000`、`Silver+Leopard+Black (Pack of 3)`）也照原样上卡片；但**色系占比与卡片色圆按真实产品颜色统计**（v1.4.0 起）——先看标题的挑染信号，再用商品页 Style 表 `Color Code`（如 `#403C3B`）定色调，都不中才回标题色名，最终不为「其他」
-- 取数三处依次尝试：`#variation_color_name .selection` → 详情表 `Color` 行 → `#detailBullets` 的 `Color:` 项
+- 取数四处依次尝试：**下拉式 `<select>` 里本 ASIN 那一个 option** → `#variation_color_name .selection`（swatch 式） → 详情表 `Color` 行 → `#detailBullets` 的 `Color:` 项
+- **下拉式颜色维度必须按 ASIN 取单值，绝不能取整段文本**（v1.4.1 修复的严重缺陷）：页面是 `variation-dropdown` 时 `#variation_color_name` 内没有 `.selection`，早先的兜底 `vc.innerText` 会把下拉里全部变体名连成一条（实测 7 条、最长 1230 字符），既不是该 ASIN 的颜色，也会把卡片撑到 985px、把「渐变 / 挑染」占比抬高。option 的 `value` 形如 `17,B0B71B59SZ`，用结尾的 ASIN 精确锚定；锚不上就退 `selected`，再不行宁可留空走详情表，也不回落容器文本
 - 批量补历史数据用 `<skill>/scripts/enrich_color.py`（浏览器通道，4 并发，125 个 ASIN 约 2 分钟，结果缓存在 `data/_color_attrs.json`，重跑不重复抓）
 - 验收看**逐条一致率**：页面有 Color 字段的条目，`color_raw` 必须与 `color_dp` 100% 相同。日志里 `商品页原文 N 条（其中本身是色名 M 条）/ 标题兜底 X 条 / 无颜色 Y 条`——N 是「页面有该字段」，M 才是「看起来是色名」，别把 N 当质量指标
 - **不要"顺手纠正"**：`Nutural Black`（natural 拼错）、`Sliver to Purple`（silver 拼错）、`1b`（小写）、`OFF BLACK`（全大写）都是亚马逊上的原样写法，改了就对不上页面

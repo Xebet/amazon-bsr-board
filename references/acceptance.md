@@ -42,6 +42,7 @@
 - [ ] **C4 长文本不裁**：超过 24 字符的颜色（`Ash Rooted platinum blonde`、`Silver+Leopard+Black (Pack of 3)`）完整显示、单元格自动换行
 - [ ] **C5 色条口径**：顶部「色系分布」合计 100，是 `color_raw` 归组后的结果，与卡片原文不矛盾
 - [ ] **C6 没有 40 字符截断**：`select max(length(color_dp))` 若有值恰好 = 40，就是被源端 `v[:40]` 切过（v1.3.0 已修，老数据需重抓该条）
+- [ ] **C7 下拉变体取单值**：`select max(length(color_dp))` 不应出现 100 字符以上的值；出现即为下拉式页面被整段拼接（v1.4.1 已修）。抽查方式：对长值条目用同一 ASIN 重跑 `parse_color_select(html, asin)`，返回值必须是单个变体名，并与卡片一致
 
 ## D+. HTML 看板
 

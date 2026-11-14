@@ -31,7 +31,7 @@ import sys
 import tempfile
 import time
 
-__version__ = "1.4.0"      # 与 SKILL.md 的 version 字段保持一致，由 tools/sync_skill.py 统一维护
+__version__ = "1.4.2"      # 与 SKILL.md 的 version 字段保持一致，由 tools/sync_skill.py 统一维护
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
@@ -366,11 +366,78 @@ def _clean_color(v):
     return v
 
 
-def parse_color_html(h):
-    """从商品页 HTML 提取「原始颜色属性」：变体选择器 > 详情表 > detail bullets。
+SELECT_IDS = (
+    r'<select\b[^>]*id="native_dropdown_selected_color_name"[^>]*>([\s\S]{0,80000}?)</select>',
+    r'<select\b[^>]*name="dropdown_selected_color_name"[^>]*>([\s\S]{0,80000}?)</select>',
+    r'<select\b[^>]*id="native_dropdown_selected_color"[^>]*>([\s\S]{0,80000}?)</select>',
+)
+
+
+def parse_color_select(h, asin=""):
+    """下拉式 Color 变体（<select>）：**只取当前 ASIN 对应的那一个 option**。
+
+    2026-11-11 发现的严重缺陷（用户截图指出）：面页是 `variation-dropdown` 时
+    `#variation_color_name` 内部没有 `.selection`，旧的 DP_JS 回落到 `vc.innerText`，
+    结果把下拉里 31 个变体的名字全部拼成一条（如 #22 NAYOO 取到 510 字符、
+    #42 取到 1230 字符），既不是该 ASIN 的颜色，也把色系统计带偏。
+
+    option 的 value 形如 `17,B0B71B59SZ`（序号,ASIN），据此精确锚定本页 ASIN；
+    取不到 ASIN 时才退到 `selected` 属性。**绝不回落到整段 innerText。**
+    """
+    if not h:
+        return ""
+    seg = ""
+    for pat in SELECT_IDS:
+        m = re.search(pat, h)
+        if m:
+            seg = m.group(1)
+            break
+    if not seg:
+        return ""
+    opts = re.findall(r"<option\b([^>]*)>([\s\S]*?)</option>", seg)
+    if not opts:
+        return ""
+
+    A = (asin or "").strip().upper()
+
+    def attr(attrs, name):
+        m = re.search(name + r'\s*=\s*"([^"]*)"', attrs, re.I)
+        return (m.group(1) if m else "")
+
+    def pick(attrs, text):
+        v = attr(attrs, "data-a-html-content") or text
+        return _clean_color(v)
+
+    hit = None
+    if A:
+        for attrs, text in opts:
+            val = attr(attrs, "value").upper()
+            dav = attr(attrs, "data-defaultasin").upper()
+            if val == A or val.endswith("," + A) or dav == A:
+                hit = (attrs, text)
+                break
+    if hit is None:
+        for attrs, text in opts:
+            if re.search(r"\bselected\b", attrs, re.I):
+                hit = (attrs, text)
+                break
+    if hit is None:
+        return ""          # 无 ASIN 匹配也无 selected：宁可空，不猜
+    v = pick(*hit)
+    if v and not re.match(
+            r'^(?:\d+(?:\.\d+)?\s*(?:inch|in|cm|mm|oz|g)\b|one size|small|medium|large|x-?large)$', v, re.I):
+        return v
+    return ""
+
+
+def parse_color_html(h, asin=""):
+    """从商品页 HTML 提取「原始颜色属性」：下拉选项 > 变体选择器 > 详情表 > detail bullets。
     这是亚马逊商品自己的 Color 字段（如 'Light Hot Pink' / 'Off Black 1B'），不是推断的色系。"""
     if not h:
         return ""
+    v = parse_color_select(h, asin)
+    if v:
+        return v
     pats = [
         r'id="variation_color_name"[\s\S]{0,900}?class="selection"[^>]*>\s*([^<]{1,200}?)\s*<',
         r'id="variation_color_name"[\s\S]{0,900}?<span[^>]*>\s*([^<]{1,200}?)\s*</span>',
@@ -446,7 +513,7 @@ def hex_to_family(code):
     return "粉色" if v >= 0.55 else "紫色"
 
 
-def _parse_dp(h):
+def _parse_dp(h, asin=""):
     brand = ""
     m = re.search(r'id="bylineInfo"[^>]*>(.*?)</(?:a|span)>', h, re.S)
     if m:
@@ -463,18 +530,46 @@ def _parse_dp(h):
         m = re.search(r'"priceAmount"\s*:\s*([\d.]+)', h)
         if m:
             price = round(float(m.group(1)), 2)
-    return brand, price, parse_color_html(h), parse_color_code(h)
+    return brand, price, parse_color_html(h, asin), parse_color_code(h)
 
 
-DP_JS = r"""() => {
+DP_JS = r"""(asin) => {
+  const ASIN = (asin || '').toUpperCase();
   const q = s => { const e = document.querySelector(s); return e ? e.innerText.trim() : ''; };
   const clean = s => (s || '').replace(/\s+/g, ' ').trim();
+  let title = q('#productTitle');
   let b = q('#bylineInfo');
   b = b.replace(/^Visit the\s+/, '').replace(/\s+Store$/, '').replace(/^Brand:\s*/, '').trim();
-  // 原始颜色属性：变体选择器 > 详情表 > detail bullets
+  // 原始颜色属性：下拉选项（只取本 ASIN 那一条） > 变体选择器 > 详情表 > detail bullets
   let color = '';
-  const vc = document.querySelector('#variation_color_name');
-  if (vc) { const sel = vc.querySelector('.selection'); color = clean(sel ? sel.innerText : vc.innerText); }
+  // ① 下拉式 Color 变体：<select> 的每个 option 形如 value="17,B0B71B59SZ"
+  //    旧版此处回落到 #variation_color_name 的 innerText，会把全部 31 个变体名拼成一条
+  //    （2026-11-11 #22 NAYOO 取到 510 字符、#42 取到 1230 字符）。修复后只取本 ASIN 的 option。
+  const sel = document.querySelector(
+    '#variation_color_name select, select#native_dropdown_selected_color_name, ' +
+    'select[name="dropdown_selected_color_name"], select#native_dropdown_selected_color');
+  if (sel && sel.options && sel.options.length) {
+    const opts = Array.from(sel.options);
+    let hit = null;
+    if (ASIN) {
+      hit = opts.find(o => {
+        const v = (o.value || '').toUpperCase();
+        const da = (o.getAttribute('data-defaultasin') || '').toUpperCase();
+        return (v && (v === ASIN || v.endsWith(',' + ASIN))) || da === ASIN;
+      }) || null;
+    }
+    if (!hit) hit = opts.find(o => o.hasAttribute('selected')) || opts[sel.selectedIndex] || null;
+    if (hit) color = clean(hit.getAttribute('data-a-html-content') || hit.textContent || '');
+  }
+  // ② swatch 式（色块/按钮列表）：只读被选中的那一项
+  if (!color) {
+    const vc = document.querySelector('#variation_color_name');
+    if (vc) {
+      const pick = vc.querySelector('.selection, .swatchSelect .a-button-text, li.selected .a-button-text, li.swatchSelect');
+      if (pick) color = clean(pick.innerText || pick.textContent);
+      // 注意：这里**不再**回落到 vc.innerText —— 那是抓成整串变体列表的根源
+    }
+  }
   if (!color) {
     for (const tr of document.querySelectorAll('#productDetails_techSpec_section_1 tr, #productDetails_detailBullets_sections1 tr, table.a-normal.a-spacing-micro tr')) {
       const tds = tr.querySelectorAll('td');
@@ -497,7 +592,7 @@ DP_JS = r"""() => {
       if (td) { const mm = clean(td.innerText).match(/#[0-9A-Fa-f]{6}|#[0-9A-Fa-f]{3}/); if (mm) { code = mm[0].toUpperCase(); break; } }
     }
   }
-  return {brand: b, price: q('#corePrice_feature_div') || q('#corePriceDisplay_desktop_feature_div'), color: color, code: code};
+  return {brand: b, title: title, price: q('#corePrice_feature_div') || q('#corePriceDisplay_desktop_feature_div'), color: color, code: code};
 }"""
 
 
@@ -519,7 +614,7 @@ async def _patch_by_browser(targets, market="amazon.com"):
                 await page.goto(f"https://www.{market}/dp/{asin}",
                                 wait_until="domcontentloaded", timeout=45000)
                 await page.wait_for_timeout(1500)
-                r = await page.evaluate(DP_JS)
+                r = await page.evaluate(DP_JS, asin)
                 m = re.search(r"\$([\d,]+\.\d\d)", r.get("price") or "")
                 fixed[asin] = {"brand": r.get("brand") or "",
                                "price": round(float(m.group(1).replace(",", "")), 2) if m else "",
@@ -593,7 +688,7 @@ def stage_enrich(items, workdir, date_s, market="amazon.com", workers=5):
             except Exception:
                 asin, h, ok = it["asin"], "", False
             if ok:
-                it["brand"], it["price_usd"], it["color_raw"], it["color_code"] = _parse_dp(h)
+                it["brand"], it["price_usd"], it["color_raw"], it["color_code"] = _parse_dp(h, asin)
                 it["color_dp"] = it["color_raw"]          # 商品页 Color 原文（源头，供重算时判源）
                 it["price_src"] = "dp" if it["price_usd"] else ""
                 it["color_src"] = "dp" if it.get("color_raw") else ""
@@ -1195,10 +1290,31 @@ def stage_build(items, workdir, date_s, name, node_id, crawled_at):
     out_dir = os.path.join(workdir, "output")
     os.makedirs(out_dir, exist_ok=True)
     out = os.path.join(out_dir, _out_name(name, date_s))
-    wb.save(out)
-    _verify(out, {date_s: len(items)}, expect_images=("image" in CFG["fields"]))
-    log(f"⑤ 出表完成：{out}（{len(items)} 图 / {len(items)} 链）")
-    return out
+    saved = _save_wb(wb, out)
+    _verify(saved, {date_s: len(items)}, expect_images=("image" in CFG["fields"]))
+    log(f"⑤ 出表完成：{saved}（{len(items)} 图 / {len(items)} 链）")
+    return saved
+
+
+def _save_wb(wb, out):
+    """保存工作簿；目标文件被 Excel/WPS/预览面板占用时改存 `<名>_fixed.xlsx`。
+
+    Windows 上「文件正被另一个程序使用」会让 openpyxl 在 wb.save 抛 PermissionError，
+    而这时抓取、补全、出表全部已完成，只为最后一步写盘就整体失败太可惜
+    （2026-11-11 实际发生：修正版重建成 10.4 MB 却写不进去）。
+    降级保存会把实情打进日志，不静默。
+    """
+    try:
+        wb.save(out)
+        return out
+    except PermissionError:
+        stem, ext = os.path.splitext(out)
+        alt = f"{stem}_fixed{ext}"
+        wb.save(alt)
+        log(f"⚠️ 目标文件被占用，无法写入：{out}")
+        log(f"   -> 已改存：{alt}")
+        log("   -> 关掉占用它的 Excel / WPS / 预览窗口后，用新文件覆盖旧文件即可")
+        return alt
 
 
 def stage_build_monthly(workdir, month, name, node_id, upto=None, out_path=None):
@@ -1244,11 +1360,11 @@ def stage_build_monthly(workdir, month, name, node_id, upto=None, out_path=None)
     out_dir = os.path.join(workdir, "output")
     os.makedirs(out_dir, exist_ok=True)
     out = out_path or os.path.join(out_dir, _out_name(name, month))
-    wb.save(out)
-    _verify(out, expects, expect_images=("image" in CFG["fields"]))
-    size_mb = os.path.getsize(out) / 1024 / 1024
-    log(f"⑤ 月度表完成：{out}（{len(dates)} 个工作表 / {size_mb:.1f} MB）")
-    return out
+    saved = _save_wb(wb, out)
+    _verify(saved, expects, expect_images=("image" in CFG["fields"]))
+    size_mb = os.path.getsize(saved) / 1024 / 1024
+    log(f"⑤ 月度表完成：{saved}（{len(dates)} 个工作表 / {size_mb:.1f} MB）")
+    return saved
 
 
 # ---------------------------------------------------------------- 工作目录

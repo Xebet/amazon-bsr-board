@@ -182,7 +182,7 @@ CHANGELOG.md              更新记录
 
 ## 版本
 
-当前 **v1.4.0**，详见 [CHANGELOG.md](CHANGELOG.md)。版本号同时写在 `SKILL.md` 的 `version:`
+当前 **v1.4.2**，详见 [CHANGELOG.md](CHANGELOG.md)。版本号同时写在 `SKILL.md` 的 `version:`
 与 `scripts/run.py` 的 `__version__`，两处必须一致；运行 `python scripts/run.py --version` 可查。
 
 ## License
