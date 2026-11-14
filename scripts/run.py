@@ -765,17 +765,42 @@ def stage_images(items, workdir, date_s, workers=8):
     d = os.path.join(workdir, "data", date_s, "images")
     os.makedirs(d, exist_ok=True)
     t0 = time.time()
-    bad = []
-    with ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
-        futs = [ex.submit(_dl_one, it, d) for it in items]
-        for fut in as_completed(futs):
-            try:
-                rank, ok = fut.result()
-            except Exception:
-                rank, ok = -1, False
-            if not ok:
-                bad.append(rank)
+
+    def run_pass(targets):
+        bad = []
+        with ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
+            futs = [ex.submit(_dl_one, it, d) for it in targets]
+            for fut in as_completed(futs):
+                try:
+                    rank, ok = fut.result()
+                except Exception:
+                    rank, ok = -1, False
+                if not ok:
+                    bad.append(rank)
+        return bad
+
+    bad = run_pass(items)
     log(f"  图片耗时 {time.time() - t0:.0f}s，缺图 {len(bad)} 张 {bad if bad else ''}")
+
+    # 整批失败基本只有一种原因：图片 CDN 瞬时拒绝（限流 / 连接被拒），3 秒内 100 张全挂。
+    # 此时再往下跑毫无意义 —— 后面会白建十几张表、最后在验收处抛「图片数 0」，
+    # 既看不出真正原因也浪费时间。这里直接停，并给可执行的下一步。
+    if bad and len(bad) == len(items):
+        log("  ✗ 全部图片下载失败：通常是图片 CDN 瞬时拒绝（限流 / 网络中断），与抓取逻辑无关")
+        log("    -> 等 1~2 分钟用同一条命令重跑即可；商品页与榜单项已落盘，不会重复抓")
+        raise SystemExit(3)
+
+    if bad:                                        # 部分失败：等一下再补一轮
+        log(f"  重试缺图 {len(bad)} 张…")
+        by_rank = {it["rank"]: it for it in items}
+        time.sleep(3)
+        for it in (by_rank[r] for r in bad if r in by_rank):
+            it.pop("local_img", None)              # 让 _dl_one 重新走下载而不是复用坏路径
+        bad2 = run_pass([by_rank[r] for r in bad if r in by_rank])
+        still = len(bad2)
+        log(f"  补图后仍缺 {still} 张 {bad2 if bad2 else ''}")
+        if still:
+            log("  ! 有图片没下下来，验收会按卡片数核对图片数，缺图会导致出表校验失败")
     return items
 
 
